@@ -1354,7 +1354,10 @@ begin
   AStream.ReadBuffer(lHeader, SizeOf(lHeader));
   Result := (lHeader.TypeVersion = AVersion) and (lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION);
   if not Result then
+  begin
+    AStream.Seek(-SizeOf(lHeader), soCurrent);
     Exit;
+  end;
 
   lOptions := [];
   if cKBDYNAMIC_STREAM_CFG_UTF8 and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_UTF8 then
