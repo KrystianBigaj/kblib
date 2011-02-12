@@ -27,12 +27,14 @@
   - Because streams are storead as binary, after change in any type you must provide
     version compatibility. If TKBDynamic.ReadFrom returns False, then
     expected version AVersion doesn't match with one stored in stream.
-    TODO: make example of handling version compatibility.
   - Don't store interfaces in types, because you will get exception.
     In future there is a plan to add (or use generic one) interface type
     with Load/Save methods. So any interface that implements that one
     could be added to for example to record with store/restore functionality.
-
+  - Don't store Variant type, you will get an exception
+    This could be handled in future (for of course only simple types)
+  - ReadFrom can raise exceptions for example in case of invalid stream
+    or in out of memory condition
   * DU - Delphi Unicode (Delphi D2009+)
   * DNU - Delphi non-Unicode (older than D2009)
 
@@ -1305,10 +1307,15 @@ class procedure TKBDynamic.WriteTo(AStream: TStream; const ADynamicType;
   ATypeInfo: PTypeInfo; AVersion: Word; const AOptions: TKBDynamicOptions; APreAllocSize: Boolean);
 var
   lHeader: TKBDynamicHeader;
+  lOldPos: Int64;
 begin
   if APreAllocSize then
+  begin
+    lOldPos := AStream.Position;
     AStream.Size := AStream.Size + TKBDynamic.GetSize(ADynamicType, ATypeInfo, AOptions) -
       (AStream.Size - AStream.Position);
+    AStream.Position := lOldPos;
+  end;
 
   lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION;
   lHeader.Stream.Options := 0;
