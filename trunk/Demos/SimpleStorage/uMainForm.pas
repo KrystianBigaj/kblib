@@ -3,7 +3,7 @@
  Author:    Krystian Bigaj
  Date:      12-02-2011
 
- Note: ub uTypes.pas you can how TSimpleTreeStorage is defined
+ Note: in uTypes.pas you can see how TSimpleTreeStorage is defined
 -----------------------------------------------------------------------------}
 
 unit uMainForm;

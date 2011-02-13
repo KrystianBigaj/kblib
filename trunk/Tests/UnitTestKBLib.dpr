@@ -25,6 +25,8 @@ uses
 {$R *.RES}
 
 begin
+  ReportMemoryLeaksOnShutdown := True;
+
   Application.Initialize;
   if IsConsole then
     TextTestRunner.RunRegisteredTests
