@@ -1307,14 +1307,18 @@ class procedure TKBDynamic.WriteTo(AStream: TStream; const ADynamicType;
   ATypeInfo: PTypeInfo; AVersion: Word; const AOptions: TKBDynamicOptions; APreAllocSize: Boolean);
 var
   lHeader: TKBDynamicHeader;
+  lNewSize: Int64;
   lOldPos: Int64;
 begin
   if APreAllocSize then
   begin
-    lOldPos := AStream.Position;
-    AStream.Size := AStream.Size + TKBDynamic.GetSize(ADynamicType, ATypeInfo, AOptions) -
-      (AStream.Size - AStream.Position);
-    AStream.Position := lOldPos;
+    lNewSize := AStream.Position + TKBDynamic.GetSize(ADynamicType, ATypeInfo, AOptions);
+    if lNewSize > AStream.Size then
+    begin
+      lOldPos := AStream.Position;
+      AStream.Size := lNewSize;
+      AStream.Position := lOldPos;
+    end;
   end;
 
   lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION;
