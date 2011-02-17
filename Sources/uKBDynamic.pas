@@ -244,7 +244,7 @@ type
     X: Word;
     Size: Cardinal;
     Count: Cardinal;
-    Fields: array [0..0] of TFieldInfo;
+    Fields: array [0..65535] of TFieldInfo;
   end;
 
 { TDynArrayTypeInfo }
