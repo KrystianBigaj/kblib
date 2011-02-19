@@ -73,31 +73,17 @@ type
                               //
                               // Default: Off (unless KBDYNAMIC_DEFAULT_UTF8 is defined)
 
-    kdoLimitToWordSize,       // Limits strings/DynArray sizes to Word (65535).
+    kdoLimitToWordSize        // Limits strings/DynArray sizes to Word (65535).
                               // If it exceeds limit then exception EKBDynamicWordLimit is raised
-                              // (unless kdoLimitToWordSizeForce is set).
                               // Useful especially when stream size if important (like transfer streams over internet)
                               //
                               // Default: Off (unless KBDYNAMIC_DEFAULT_WORDSIZE is defined)
-
-    kdoLimitToWordSizeForce   // If kdoLimitToWordSize is set and String/DynArray exceeds 65535 limit,
-                              // then String/DynArray is limited (cut-off) to 65535 elements.
-                              // No exception is raised.
-                              //
-                              // NOTE: this option doesn't take any effect in ReadDynamicFromStreamNH
-                              //
-                              // WARNING: unasfe
-                              //   as UTF8/UTF16-result-string might be cut-off in the middle of charater -
-                              //   for UTF8 non-ANSI characters more than 1 byte length,
-                              //   or like surrogate UTF16 chars).
-                              //
-                              // Default: Off (unless KBDYNAMIC_DEFAULT_WORDSIZEFORCE is defined)
   );
 
   TKBDynamicOptions = set of TKBDynamicOption;
 
 const
-  // Default optons set
+  // Default options set
   TKBDynamicDefaultOptions = [
     kdoAnsiStringCodePage
 
@@ -107,10 +93,6 @@ const
 
 {$IFDEF KBDYNAMIC_DEFAULT_WORDSIZE}
     ,kdoLimitToWordSize
-{$ENDIF}
-
-{$IFDEF KBDYNAMIC_DEFAULT_WORDSIZEFORCE}
-    ,kdoLimitToWordSizeForce
 {$ENDIF}
   ];
 
@@ -536,10 +518,7 @@ begin
   lLen := PCardinal(PCardinal(ADynamic)^ - 4)^;
 
   if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-    if kdoLimitToWordSizeForce in AOptions then
-      lLen := MAXWORD
-    else
-      raise EKBDynamicWordLimit.Create(lLen);
+    raise EKBDynamicWordLimit.Create(lLen);
 
   lDyn := PDynArrayTypeInfo(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
@@ -581,10 +560,7 @@ begin
         if lLen > 0 then
         begin
           if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            if kdoLimitToWordSizeForce in AOptions then
-              lLen := MAXWORD
-            else
-              raise EKBDynamicWordLimit.Create(lLen);
+            raise EKBDynamicWordLimit.Create(lLen);
 
           Inc(Result, lLen * SizeOf(AnsiChar));
           if kdoAnsiStringCodePage in AOptions then
@@ -623,10 +599,7 @@ begin
           end;
 
           if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            if kdoLimitToWordSizeForce in AOptions then
-              lLen := MAXWORD
-            else
-              raise EKBDynamicWordLimit.Create(lLen);
+            raise EKBDynamicWordLimit.Create(lLen);
 
           if kdoUTF16ToUTF8 in AOptions then
             Inc(Result, lLen)
@@ -667,10 +640,7 @@ begin
           end;
 
           if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            if kdoLimitToWordSizeForce in AOptions then
-              lLen := MAXWORD
-            else
-              raise EKBDynamicWordLimit.Create(lLen);
+            raise EKBDynamicWordLimit.Create(lLen);
 
           if kdoUTF16ToUTF8 in AOptions then
             Inc(Result, lLen)
@@ -800,10 +770,7 @@ begin
   if kdoLimitToWordSize in AOptions then
   begin
     if lLen > MAXWORD then
-      if kdoLimitToWordSizeForce in AOptions then
-        lLen := MAXWORD
-      else
-        raise EKBDynamicWordLimit.Create(lLen);
+      raise EKBDynamicWordLimit.Create(lLen);
 
     AStream.WriteBuffer(lLen, SizeOf(Word));
   end else
@@ -826,7 +793,7 @@ begin
     );
 end;
 
-procedure DynamicWrite_WideStringAsUFT8(AStream: TStream; APWideChar: PPWideChar;
+procedure DynamicWrite_UTF16AsUFT8(AStream: TStream; APWideChar: PPWideChar;
   ALen: Cardinal; const AOptions: TKBDynamicOptions);
 var
   lUTF8: PAnsiChar;
@@ -892,13 +859,10 @@ begin
   if kdoLimitToWordSize in AOptions then
   begin
     if lLen > MAXWORD then
-      if kdoLimitToWordSizeForce in AOptions then
-        lLen := MAXWORD // FIXME: UNSAFE - UTF8 string might be cut-off in the middle of character!
-      else
-      begin
-        FreeMem(lUTF8);
-        raise EKBDynamicWordLimit.Create(lLen);
-      end;
+    begin
+      FreeMem(lUTF8);
+      raise EKBDynamicWordLimit.Create(lLen);
+    end;
 
     if AStream.Write(lLen, SizeOf(Word)) <> SizeOf(Word) then
     begin
@@ -912,12 +876,11 @@ begin
       raise EWriteError.CreateRes(@SWriteError);
     end;
 
-  if lLen > 0 then
-    if AStream.Write(lUTF8^, lLen) <> lLen then
-    begin
-      FreeMem(lUTF8);
-      raise EWriteError.CreateRes(@SWriteError);
-    end;
+  if AStream.Write(lUTF8^, lLen) <> lLen then
+  begin
+    FreeMem(lUTF8);
+    raise EWriteError.CreateRes(@SWriteError);
+  end;
 
   FreeMem(lUTF8);
 end;
@@ -944,10 +907,7 @@ begin
       if kdoLimitToWordSize in AOptions then
       begin
         if lLen > MAXWORD then
-          if kdoLimitToWordSizeForce in AOptions then
-            lLen := MAXWORD
-          else
-            raise EKBDynamicWordLimit.Create(lLen);
+          raise EKBDynamicWordLimit.Create(lLen);
 
         AStream.WriteBuffer(lLen, SizeOf(Word));
       end else
@@ -981,16 +941,13 @@ begin
         lLen := Length(PWideString(ADynamic)^);
 
       if kdoUTF16ToUTF8 in AOptions then
-        DynamicWrite_WideStringAsUFT8(AStream, ADynamic, lLen, AOptions)
+        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lLen, AOptions)
       else
       begin
         if kdoLimitToWordSize in AOptions then
         begin
           if lLen > MAXWORD then
-            if kdoLimitToWordSizeForce in AOptions then
-              lLen := MAXWORD
-            else
-              raise EKBDynamicWordLimit.Create(lLen);
+            raise EKBDynamicWordLimit.Create(lLen);
 
           AStream.WriteBuffer(lLen, SizeOf(Word));
         end else
@@ -1014,16 +971,13 @@ begin
         lLen := Length(PUnicodeString(ADynamic)^);
 
       if kdoUTF16ToUTF8 in AOptions then
-        DynamicWrite_WideStringAsUFT8(AStream, ADynamic, lLen, AOptions)
+        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lLen, AOptions)
       else
       begin
         if kdoLimitToWordSize in AOptions then
         begin
           if lLen > MAXWORD then
-            if kdoLimitToWordSizeForce in AOptions then
-              lLen := MAXWORD
-            else
-              raise EKBDynamicWordLimit.Create(lLen);
+            raise EKBDynamicWordLimit.Create(lLen);
 
           AStream.WriteBuffer(lLen, SizeOf(Word));
         end else
@@ -1172,6 +1126,7 @@ var
   lFieldTable: PFieldTable;
   lLen: Integer;
   lUTF8: PAnsiChar;
+  lErr: DWORD;
 begin
   if ALength = 0 then
     Exit;
@@ -1219,6 +1174,7 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
+          // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
           SetLength(PWideString(ADynamic)^, lLen);
           GetMem(lUTF8, lLen);
           if AStream.Read(lUTF8^, lLen) <> lLen then
@@ -1232,7 +1188,15 @@ begin
             lUTF8, lLen,
             PPWideChar(ADynamic)^, lLen);
 
-          FreeMem(lUTF8);
+          if lLen = 0 then
+          begin
+            lErr := GetLastError;
+
+            FreeMem(lUTF8);
+
+            RaiseLastOSError(lErr);
+          end else
+            FreeMem(lUTF8);
 
           SetLength(PWideString(ADynamic)^, lLen);
         end else
@@ -1262,6 +1226,7 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
+          // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
           SetLength(PUnicodeString(ADynamic)^, lLen);
           GetMem(lUTF8, lLen);
           if AStream.Read(lUTF8^, lLen) <> lLen then
@@ -1275,7 +1240,15 @@ begin
             lUTF8, lLen,
             PPWideChar(ADynamic)^, lLen);
 
-          FreeMem(lUTF8);
+          if lLen = 0 then
+          begin
+            lErr := GetLastError;
+
+            FreeMem(lUTF8);
+
+            RaiseLastOSError(lErr);
+          end else
+            FreeMem(lUTF8);
 
           SetLength(PUnicodeString(ADynamic)^, lLen);
         end else
