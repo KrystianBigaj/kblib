@@ -45,7 +45,7 @@ unit uKBDynamic;
 interface
 
 uses
-  Windows, SysUtils, Classes, TypInfo;
+  Windows, SysUtils, Classes, TypInfo, RTLConsts;
 
 type
 
@@ -63,7 +63,7 @@ type
     kdoAnsiStringCodePage,    // Stores CodePage for AnsiString. Adds 2 bytes for each AnsiString.
                               // Only for D2009+. For older versions currently doesn't take any effect.
                               // If you are using non-Unicode delphi and dont care about compatibility
-                              // then
+                              // then don't set this option
                               //
                               // Default: On
 
@@ -152,7 +152,7 @@ type
 
   EKBDynamicWordLimit = class(EKBDynamic)
   public
-    constructor Create(ALen: Cardinal); reintroduce;
+    constructor Create(ALen: Integer); reintroduce;
   end;
 
 { TKBDynamic }
@@ -558,7 +558,7 @@ function DynamicGetSize_Array(ADynamic: Pointer; ATypeInfo: PTypeInfo;
   ALength: Cardinal; const AOptions: TKBDynamicOptions): Cardinal;
 var
   lFieldTable: PFieldTable;
-  lLen: Cardinal;
+  lLen: Integer;
 begin
   Result := 0;
 
@@ -611,15 +611,16 @@ begin
         if lLen > 0 then
         begin
           if kdoUTF16ToUTF8 in AOptions then
+          begin
             lLen := WideCharToMultiByte(
-              CP_UTF8,
-              0,
-              PWideChar(ADynamic^),
-              lLen,
-              nil,
-              0,
-              nil,
-              nil);
+              CP_UTF8, 0,
+              PWideChar(ADynamic^), lLen,
+              nil, 0,
+              nil, nil);
+
+            if lLen = 0 then
+              RaiseLastOSError;
+          end;
 
           if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
             if kdoLimitToWordSizeForce in AOptions then
@@ -654,15 +655,16 @@ begin
         if lLen > 0 then
         begin
           if kdoUTF16ToUTF8 in AOptions then
+          begin
             lLen := WideCharToMultiByte(
-              CP_UTF8,
-              0,
-              PWideChar(ADynamic^),
-              lLen,
-              nil,
-              0,
-              nil,
-              nil);
+              CP_UTF8, 0,
+              PWideChar(ADynamic^), lLen,
+              nil, 0,
+              nil, nil);
+
+            if lLen = 0 then
+              RaiseLastOSError;
+          end;
 
           if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
             if kdoLimitToWordSizeForce in AOptions then
@@ -828,7 +830,8 @@ procedure DynamicWrite_WideStringAsUFT8(AStream: TStream; APWideChar: PPWideChar
   ALen: Cardinal; const AOptions: TKBDynamicOptions);
 var
   lUTF8: PAnsiChar;
-  lLen: Cardinal;
+  lLen: Integer;
+  lErr: DWORD;
 begin
   if ALen = 0 then
   begin
@@ -841,34 +844,82 @@ begin
   end;
 
   GetMem(lUTF8, ALen * 3);
-  try
+  lLen := WideCharToMultiByte(
+    CP_UTF8, 0,
+    APWideChar^, ALen,
+    lUTF8, ALen * 3,
+    nil, nil);
+
+  // Very rare case (if ALen*3 is too small)
+  if lLen = 0 then
+  begin
+    lErr := GetLastError; // FreeMem can call eg. VirtualFree, so GLE must be saved before FreeMem call
+
+    FreeMem(lUTF8); // FreeMem here instead of ReallocMem below to prevent
+                    // memory leak, in case of possible EOutOfMemory in ReallocMem
+
+    if lErr <> ERROR_INSUFFICIENT_BUFFER then
+      RaiseLastOSError(lErr);
+
+    // Get required buf size and allocate it
     lLen := WideCharToMultiByte(
-      CP_UTF8,
-      0,
-      APWideChar^,
-      ALen,
-      lUTF8,
-      ALen * 3,
-      nil,
-      nil);
+      CP_UTF8, 0,
+      APWideChar^, ALen,
+      nil, 0,
+      nil, nil);
 
-    if kdoLimitToWordSize in AOptions then
+    if lLen = 0 then
+      RaiseLastOSError;
+
+    GetMem(lUTF8, lLen);
+
+    // Convert to UTF8
+    lLen := WideCharToMultiByte(
+      CP_UTF8, 0,
+      APWideChar^, ALen,
+      lUTF8, lLen,
+      nil, nil);
+
+    if lLen = 0 then
     begin
-      if lLen > MAXWORD then
-        if kdoLimitToWordSizeForce in AOptions then
-          lLen := MAXWORD // FIXME: UNSAFE - UTF8 string might be cut-off in the middle of character!
-        else
-          raise EKBDynamicWordLimit.Create(lLen);
+      lErr := GetLastError;
+      FreeMem(lUTF8);
 
-      AStream.WriteBuffer(lLen, SizeOf(Word));
-    end else
-      AStream.WriteBuffer(lLen, SizeOf(Cardinal));
-
-    if lLen > 0 then
-      AStream.WriteBuffer(lUTF8^, lLen);
-  finally
-    FreeMem(lUTF8);
+      RaiseLastOSError(lErr);
+    end;
   end;
+
+  if kdoLimitToWordSize in AOptions then
+  begin
+    if lLen > MAXWORD then
+      if kdoLimitToWordSizeForce in AOptions then
+        lLen := MAXWORD // FIXME: UNSAFE - UTF8 string might be cut-off in the middle of character!
+      else
+      begin
+        FreeMem(lUTF8);
+        raise EKBDynamicWordLimit.Create(lLen);
+      end;
+
+    if AStream.Write(lLen, SizeOf(Word)) <> SizeOf(Word) then
+    begin
+      FreeMem(lUTF8);
+      raise EWriteError.CreateRes(@SWriteError);
+    end;
+  end else
+    if AStream.Write(lLen, SizeOf(Cardinal)) <> SizeOf(Cardinal) then
+    begin
+      FreeMem(lUTF8);
+      raise EWriteError.CreateRes(@SWriteError);
+    end;
+
+  if lLen > 0 then
+    if AStream.Write(lUTF8^, lLen) <> lLen then
+    begin
+      FreeMem(lUTF8);
+      raise EWriteError.CreateRes(@SWriteError);
+    end;
+
+  FreeMem(lUTF8);
 end;
 
 procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
@@ -913,7 +964,7 @@ begin
 {$ELSE}
           lCP := GetACP; // TODO: System.DefaultSystemCodePage
 {$ENDIF}
-          AStream.Write(lCP, SizeOf(Word));
+          AStream.WriteBuffer(lCP, SizeOf(Word));
         end;
       end;
 
@@ -1119,7 +1170,7 @@ procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; ALength: Cardinal; const AOptions: TKBDynamicOptions);
 var
   lFieldTable: PFieldTable;
-  lLen: Cardinal;
+  lLen: Integer;
   lUTF8: PAnsiChar;
 begin
   if ALength = 0 then
@@ -1168,24 +1219,22 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
+          SetLength(PWideString(ADynamic)^, lLen);
           GetMem(lUTF8, lLen);
-          try
-            SetLength(PWideString(ADynamic)^, lLen);
-            AStream.Read(lUTF8^, lLen);
-
-            lLen := MultiByteToWideChar(
-              CP_UTF8,
-              0,
-              lUTF8,
-              lLen,
-              PPWideChar(ADynamic)^,
-              lLen
-            );
-
-            SetLength(PWideString(ADynamic)^, lLen);
-          finally
+          if AStream.Read(lUTF8^, lLen) <> lLen then
+          begin
             FreeMem(lUTF8);
+            raise EReadError.CreateRes(@SReadError);
           end;
+
+          lLen := MultiByteToWideChar(
+            CP_UTF8, 0,
+            lUTF8, lLen,
+            PPWideChar(ADynamic)^, lLen);
+
+          FreeMem(lUTF8);
+
+          SetLength(PWideString(ADynamic)^, lLen);
         end else
         begin
           SetLength(PWideString(ADynamic)^, lLen);
@@ -1213,24 +1262,22 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
+          SetLength(PUnicodeString(ADynamic)^, lLen);
           GetMem(lUTF8, lLen);
-          try
-            SetLength(PUnicodeString(ADynamic)^, lLen);
-            AStream.Read(lUTF8^, lLen);
-
-            lLen := MultiByteToWideChar(
-              CP_UTF8,
-              0,
-              lUTF8,
-              lLen,
-              PPWideChar(ADynamic)^,
-              lLen
-            );
-
-            SetLength(PUnicodeString(ADynamic)^, lLen);
-          finally
+          if AStream.Read(lUTF8^, lLen) <> lLen then
+          begin
             FreeMem(lUTF8);
+            raise EReadError.CreateRes(@SReadError);
           end;
+
+          lLen := MultiByteToWideChar(
+            CP_UTF8, 0,
+            lUTF8, lLen,
+            PPWideChar(ADynamic)^, lLen);
+
+          FreeMem(lUTF8);
+
+          SetLength(PUnicodeString(ADynamic)^, lLen);
         end else
         begin
           SetLength(PUnicodeString(ADynamic)^, lLen);
@@ -1396,7 +1443,7 @@ end;
 
 { EKBDynamicWordLimit }
 
-constructor EKBDynamicWordLimit.Create(ALen: Cardinal);
+constructor EKBDynamicWordLimit.Create(ALen: Integer);
 begin
   inherited CreateFmt('Invalid dynamic array size %d (max 65535)', [ALen]);
 end;
