@@ -228,6 +228,18 @@ begin
   FillRecord(lRec2, TKBDynamicDefaultOptions);
 
   DoCompare(lRec1, lRec2);
+
+  lRec1.IA[2] := 1234;
+  Check(not TKBDynamic.Compare(lRec1, lRec2, TypeInfo(TTestRecord)));
+
+  lRec2.IA[2] := 1234;
+  Check(TKBDynamic.Compare(lRec1, lRec2, TypeInfo(TTestRecord)));
+
+  lRec1.U := '1234';
+  Check(not TKBDynamic.Compare(lRec1, lRec2, TypeInfo(TTestRecord)));
+
+  lRec2.U := '1234';
+  Check(TKBDynamic.Compare(lRec1, lRec2, TypeInfo(TTestRecord)));
 end;
 
 procedure TestTKBDynamic.TestSizeOfDynamic;
