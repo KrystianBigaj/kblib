@@ -320,6 +320,12 @@ var
   lDyn: PDynArrayTypeInfo;
   lLen, lLen2: Cardinal;
 begin
+  if ADynamic1 = ADynamic2 then
+  begin
+    Result := True;
+    Exit;
+  end;
+
   if PPointer(ADynamic1)^ = nil then
     lLen := 0
   else
@@ -353,7 +359,7 @@ function DynamicCompare_Array(ADynamic1, ADynamic2: Pointer;
 var
   lFieldTable: PFieldTable;
 begin
-  Result := ALength = 0;
+  Result := (ALength = 0) or (ADynamic1 = ADynamic2);
 
   if Result then
     Exit;
@@ -362,8 +368,9 @@ begin
   tkLString:
     while ALength > 0 do
     begin
-      if PAnsiString(ADynamic1)^ <> PAnsiString(ADynamic2)^ then
-        Exit;
+      if ADynamic1 <> ADynamic2 then
+        if PAnsiString(ADynamic1)^ <> PAnsiString(ADynamic2)^ then
+          Exit;
 
       Inc(PPointer(ADynamic1));
       Inc(PPointer(ADynamic2));
@@ -373,8 +380,9 @@ begin
   tkWString:
     while ALength > 0 do
     begin
-      if PWideString(ADynamic1)^ <> PWideString(ADynamic2)^ then
-        Exit;
+      if ADynamic1 <> ADynamic2 then
+        if PWideString(ADynamic1)^ <> PWideString(ADynamic2)^ then
+          Exit;
 
       Inc(PPointer(ADynamic1));
       Inc(PPointer(ADynamic2));
@@ -385,8 +393,9 @@ begin
   tkUString:
     while ALength > 0 do
     begin
-      if PUnicodeString(ADynamic1)^ <> PUnicodeString(ADynamic2)^ then
-        Exit;
+      if ADynamic1 <> ADynamic2 then
+        if PUnicodeString(ADynamic1)^ <> PUnicodeString(ADynamic2)^ then
+          Exit;
 
       Inc(PPointer(ADynamic1));
       Inc(PPointer(ADynamic2));
@@ -810,6 +819,7 @@ begin
     Exit;
   end;
 
+  // Allocate buffer to cover whole Unicode BMP in UTF-8
   GetMem(lUTF8, ALen * 3);
   lLen := WideCharToMultiByte(
     CP_UTF8, 0,
@@ -817,7 +827,7 @@ begin
     lUTF8, ALen * 3,
     nil, nil);
 
-  // Very rare case (if ALen*3 is too small)
+  // Very rare case (if ALen*3 is too small) - for strings filled with chars of Unicode Supplementary Plane
   if lLen = 0 then
   begin
     lErr := GetLastError; // FreeMem can call eg. VirtualFree, so GLE must be saved before FreeMem call
