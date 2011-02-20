@@ -30,12 +30,12 @@ When UTF8 checkbox is checked, then log looks like this:
 
 	--- Save
 	Record count: 10000000
-	Allocating DB took 0,0411s
-	Fill DB took 2,3136s
-	Saving DB to TMemoryStream took 2,5615s
+	Allocating DB took 0,0242s
+	Fill DB took 2,3502s
+	Saving DB to TMemoryStream took 2,1312s
 	DB size 218,29MB
 	--- Load
-	Loading DB from TMemoryStream took 2,0465s
+	Loading DB from TMemoryStream took 1,5473s
 	Record count: 10000000
 
 In UTF8 mode, saving is 2.5x longer, because of conversion UnicodeString->UTF8String,
