@@ -8,7 +8,7 @@
 
  Tested on Delphi 2006/2009/XE.
 
- See TestuKBDynamic.pas for some examples of usage.
+ See TestuKBDynamic.pas and Demos for some examples of usage.
 
  Notes:
   - Streams are not fully compatibile DU* vs. DNU*
@@ -27,6 +27,7 @@
   - Because streams are storead as binary, after change in any type you must provide
     version compatibility. If TKBDynamic.ReadFrom returns False, then
     expected version AVersion doesn't match with one stored in stream.
+    See Demos\RecordVersions for more details.
   - Don't store interfaces in types, because you will get exception.
     In future there is a plan to add (or use generic one) interface type
     with Load/Save methods. So any interface that implements that one
