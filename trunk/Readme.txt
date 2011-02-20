@@ -36,35 +36,6 @@ To load it back:
 
 See TestuKBDynamic.pas and Demos for some examples of usage.
 
-Notes:
-  - Streams are not fully compatibile DU* vs. DNU*
-    (only if you are using AnsiString).
-  - If you care about stream compatibility (DU vs. DNU),
-    as String type use always UnicodeString (for DNU it's defined as WideString).
-    If you don't need Unicode then use AnsiString.
-  - In DNU CodePage for AnsiString is stored as Windows.GetACP
-    (it should be System.DefaultSystemCodePage, but I cannot get this under D2006).
-    CodePage currently is not used in DNU at all. It's only to make binary
-    stream comatibile DN vs. DNU. It will probably change in future.
-  - In DU CodePage for AnsiString is used as is should be.
-  - To speed-up writing to stream, APreAllocSize is by default set to True.
-  - For obvious reason, any pointers or pointer types
-    are stored directly as in memory (like Pointer, PAnsiChar, TForm, etc.)
-  - Because streams are storead as binary, after change in any type you must provide
-    version compatibility. If TKBDynamic.ReadFrom returns False, then
-    expected version AVersion doesn't match with one stored in stream.
-  - Don't store interfaces in types, because you will get exception.
-    In future there is a plan to add (or use generic one) interface type
-    with Load/Save methods. So any interface that implements that one
-    could be added to for example to record with store/restore functionality.
-  - Don't store Variant type, you will get an exception
-    This could be handled in future (for of course only simple types)
-  - ReadFrom can raise exceptions for example in case of invalid stream
-    or in out of memory condition
-
-  * DU - Delphi Unicode (Delphi D2009+)
-  * DNU - Delphi non-Unicode (older than D2009)
-
 License:   MPL 1.1/GPL 2.0/LGPL 3.0
 EMail:     krystian.bigaj@gmail.com
 WWW:       http://code.google.com/p/kblib/
