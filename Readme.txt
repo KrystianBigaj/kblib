@@ -1,7 +1,7 @@
-
 TKBDynamic allows to save/load/get(binary)size/compare any dynamic type with only one line of code. 
 This can be used for example to share data by any IPC mechanism.  
-Tested on Delphi 2006/2009/XE.
+Tested on Delphi 2006/2009/XE. Extended RTTI (added in D2010) is NOT used at all (no need for this case).
+It should work also with Delphi 7.
 
 Dynamic types can be for example:
 - String
@@ -34,7 +34,7 @@ To save whole TTestRecord:
 To load it back:
   TKBDynamic.ReadFrom(lStream, lTestRecord, TypeInfo(TTestRecord));
 
-See TestuKBDynamic.pas for some examples of usage.
+See TestuKBDynamic.pas and Demos for some examples of usage.
 
 Notes:
   - Streams are not fully compatibile DU* vs. DNU*
@@ -53,17 +53,17 @@ Notes:
   - Because streams are storead as binary, after change in any type you must provide
     version compatibility. If TKBDynamic.ReadFrom returns False, then
     expected version AVersion doesn't match with one stored in stream.
-    TODO: make example of handling version compatibility.
   - Don't store interfaces in types, because you will get exception.
     In future there is a plan to add (or use generic one) interface type
     with Load/Save methods. So any interface that implements that one
     could be added to for example to record with store/restore functionality.
+  - Don't store Variant type, you will get an exception
+    This could be handled in future (for of course only simple types)
+  - ReadFrom can raise exceptions for example in case of invalid stream
+    or in out of memory condition
 
   * DU - Delphi Unicode (Delphi D2009+)
   * DNU - Delphi non-Unicode (older than D2009)
-
-See TestuKBDynamic.pas for more examples of usage.
-
 
 License:   MPL 1.1/GPL 2.0/LGPL 3.0
 EMail:     krystian.bigaj@gmail.com
