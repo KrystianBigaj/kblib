@@ -2,6 +2,9 @@
  Unit Name: uTypes
  Author:    Krystian Bigaj
  Date:      12-02-2011
+ License:   MPL 1.1/GPL 2.0/LGPL 3.0
+ EMail:     krystian.bigaj@gmail.com
+ WWW:       http://code.google.com/p/kblib/
 
  D2009+ example
  It doesn't work in D2006 (but might work in D2007 - not tested):

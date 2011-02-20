@@ -1,7 +1,10 @@
 {-----------------------------------------------------------------------------
- Unit Name: uMain
+ Unit Name: uMainForm
  Author:    Krystian Bigaj
  Date:      12-02-2011
+ License:   MPL 1.1/GPL 2.0/LGPL 3.0
+ EMail:     krystian.bigaj@gmail.com
+ WWW:       http://code.google.com/p/kblib/
 
  Note: in uTypes.pas you can see how TSimpleTreeStorage is defined
 -----------------------------------------------------------------------------}
