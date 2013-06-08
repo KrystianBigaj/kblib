@@ -6,7 +6,7 @@
  EMail:     krystian.bigaj@gmail.com
  WWW:       http://code.google.com/p/kblib/
 
- Tested on Delphi 2006/2009/XE.
+ Tested on Delphi 2006/2009/XE/XE4.
 
  See TestuKBDynamic.pas and Demos for some examples of usage.
 
@@ -36,6 +36,7 @@
     This could be handled in future (for of course only simple types)
   - ReadFrom can raise exceptions for example in case of invalid stream
     or in out of memory condition
+  - Streams are not compatible between x64 and x86
   * DU - Delphi Unicode (Delphi D2009+)
   * DNU - Delphi non-Unicode (older than D2009)
 
@@ -50,6 +51,8 @@ uses
 
 type
 
+{ Compiler compatibility }
+
 {$IF CompilerVersion >= 20.0}
   {$DEFINE KBDYNAMIC_UNICODE}
 {$IFEND}
@@ -57,6 +60,25 @@ type
 {$IFNDEF KBDYNAMIC_UNICODE}
   UnicodeString = WideString;
 {$ENDIF}
+
+// D2009 and older. D2009 supports NativeInt/NativeUInt, however compiler is buggy for this types.
+{$IF CompilerVersion < 21}
+  NativeInt = Integer;
+  NativeUInt = Cardinal;
+  PNativeInt = ^NativeInt;
+  PNativeUInt = ^NativeUInt;
+{$IFEND}
+
+  KBSize = NativeInt;
+
+  PKBPointerMath = ^KBPointerMath;
+  KBPointerMath = NativeUInt;
+
+  PKBArrayLen = ^KBArrayLen;
+  KBArrayLen = NativeInt;
+
+  PKBStrLen = ^KBStrLen;
+  KBStrLen = Integer;
 
 { TKBDynamicOption }
 
@@ -135,7 +157,7 @@ type
 
   EKBDynamicWordLimit = class(EKBDynamic)
   public
-    constructor Create(ALen: Integer); reintroduce;
+    constructor Create(ALen: KBArrayLen); reintroduce;
   end;
 
 { TKBDynamic }
@@ -145,7 +167,7 @@ type
       ATypeInfo: PTypeInfo): Boolean;
 
     class function GetSize(const ADynamicType; ATypeInfo: PTypeInfo;
-      const AOptions: TKBDynamicOptions = TKBDynamicDefaultOptions): Cardinal;
+      const AOptions: TKBDynamicOptions = TKBDynamicDefaultOptions): KBSize;
 
     class procedure WriteTo(AStream: TStream; const ADynamicType;
       ATypeInfo: PTypeInfo; AVersion: Word = 1;
@@ -159,7 +181,7 @@ type
     // (4 bytes less, but you need take care of of version/compatibility and options)
 
     class function GetSizeNH(const ADynamicType; ATypeInfo: PTypeInfo;
-      const AOptions: TKBDynamicOptions = TKBDynamicDefaultOptions): Cardinal;
+      const AOptions: TKBDynamicOptions = TKBDynamicDefaultOptions): KBSize;
 
     class procedure WriteToNH(AStream: TStream; const ADynamicType;
       ATypeInfo: PTypeInfo;
@@ -186,7 +208,14 @@ type
 
 const
   // Version (1 Byte)
-  cKBDYNAMIC_STREAM_VERSION                 = $01;
+  cKBDYNAMIC_STREAM_VERSION_v1                 = $01;
+  cKBDYNAMIC_STREAM_VERSION_v2                 = $02;
+
+  {$IFDEF CPUX64}
+  cKBDYNAMIC_STREAM_VERSION                 = cKBDYNAMIC_STREAM_VERSION_v2;
+  {$ELSE}
+  cKBDYNAMIC_STREAM_VERSION                 = cKBDYNAMIC_STREAM_VERSION_v1;
+  {$ENDIF}
 
   // CFG (1 Byte)
   cKBDYNAMIC_STREAM_CFG_UNICODE             = $01;  // Stream created in UNICODE version of delphi (D2009+),
@@ -217,7 +246,7 @@ type
   PPTypeInfo = ^PTypeInfo;
   TFieldInfo = packed record
     TypeInfo: PPTypeInfo;
-    Offset: Cardinal;
+    Offset: KBPointerMath;
   end;
 
 { TFieldTable }
@@ -246,18 +275,18 @@ type
 // -----------------------------------------------------------------------------
 
 function DynamicCompare_Array(ADynamic1, ADynamic2: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal): Boolean; forward;
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen): Boolean; forward;
 
 function DynamicCompare_Record(ADynamic1, ADynamic2: Pointer;
   ATypeInfo: PTypeInfo): Boolean;
 var
   lFieldTable: PFieldTable;
-  lCompare: Cardinal;
-  lOffset: Cardinal;
-  lIdx: Cardinal;
+  lCompare: KBPointerMath;
+  lOffset: KBPointerMath;
+  lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lFieldTable^.Count = 0 then
   begin
@@ -275,8 +304,8 @@ begin
 
     if lCompare < lOffset then
       if CompareMem(
-        Pointer(Cardinal(ADynamic1) + lCompare),
-        Pointer(Cardinal(ADynamic2) + lCompare),
+        Pointer(KBPointerMath(ADynamic1) + lCompare),
+        Pointer(KBPointerMath(ADynamic2) + lCompare),
         lOffset - lCompare
       ) then
         Inc(lCompare, lOffset - lCompare)
@@ -286,15 +315,15 @@ begin
     lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
 
     if DynamicCompare_Array(
-      Pointer(Cardinal(ADynamic1) + lOffset),
-      Pointer(Cardinal(ADynamic2) + lOffset),
+      Pointer(KBPointerMath(ADynamic1) + lOffset),
+      Pointer(KBPointerMath(ADynamic2) + lOffset),
       lTypeInfo,
       1
     ) then
     begin
       case lTypeInfo^.Kind of
       tkArray, tkRecord:
-        Inc(lCompare, PFieldTable(Cardinal(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+        Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
       else
         Inc(lCompare, SizeOf(Pointer));
       end;
@@ -306,8 +335,8 @@ begin
 
   if lCompare < lFieldTable^.Size then
     if not CompareMem(
-      Pointer(Cardinal(ADynamic1) + lCompare),
-      Pointer(Cardinal(ADynamic2) + lCompare),
+      Pointer(KBPointerMath(ADynamic1) + lCompare),
+      Pointer(KBPointerMath(ADynamic2) + lCompare),
       lFieldTable^.Size - lCompare
     ) then
       Exit;
@@ -319,7 +348,7 @@ function DynamicCompare_DynArray(ADynamic1, ADynamic2: Pointer;
   ATypeInfo: PTypeInfo): Boolean;
 var
   lDyn: PDynArrayTypeInfo;
-  lLen, lLen2: Cardinal;
+  lLen, lLen2: KBArrayLen;
 begin
   if ADynamic1 = ADynamic2 then
   begin
@@ -330,19 +359,19 @@ begin
   if PPointer(ADynamic1)^ = nil then
     lLen := 0
   else
-    lLen := PCardinal(PCardinal(ADynamic1)^ - SizeOf(Cardinal))^;
+    lLen := PKBArrayLen(PKBPointerMath(ADynamic1)^ - SizeOf(KBArrayLen))^;
 
   if PPointer(ADynamic2)^ = nil then
     lLen2 := 0
   else
-    lLen2 := PCardinal(PCardinal(ADynamic2)^ - SizeOf(Cardinal))^;
+    lLen2 := PKBArrayLen(PKBPointerMath(ADynamic2)^ - SizeOf(KBArrayLen))^;
 
   Result := lLen = lLen2;
 
   if (not Result) or (lLen = 0) then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
     Result := CompareMem(PPointer(ADynamic1)^, PPointer(ADynamic2)^, lLen * lDyn^.elSize)
@@ -356,7 +385,7 @@ begin
 end;
 
 function DynamicCompare_Array(ADynamic1, ADynamic2: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal): Boolean;
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen): Boolean;
 var
   lFieldTable: PFieldTable;
 begin
@@ -406,28 +435,28 @@ begin
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         if not DynamicCompare_Array(ADynamic1, ADynamic2, lFieldTable.Fields[0].TypeInfo^, lFieldTable.Count) then
           Exit;
 
-        Inc(Integer(ADynamic1), lFieldTable.Size);
-        Inc(Integer(ADynamic2), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic1), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic2), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(Integer(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         if not DynamicCompare_Record(ADynamic1, ADynamic2, ATypeInfo) then
           Exit;
 
-        Inc(Integer(ADynamic1), lFieldTable.Size);
-        Inc(Integer(ADynamic2), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic1), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic2), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
@@ -454,18 +483,18 @@ end;
 // -----------------------------------------------------------------------------
 
 function DynamicGetSize_Array(ADynamic: Pointer; ATypeInfo: PTypeInfo;
-  ALength: Cardinal; const AOptions: TKBDynamicOptions): Cardinal; forward;
+  ALength: KBArrayLen; const AOptions: TKBDynamicOptions): KBSize; forward;
 
 function DynamicGetSize_Record(ADynamic: Pointer; ATypeInfo: PTypeInfo;
-  const AOptions: TKBDynamicOptions): Cardinal;
+  const AOptions: TKBDynamicOptions): KBSize;
 var
   lFieldTable: PFieldTable;
-  lCompare: Cardinal;
-  lOffset: Cardinal;
-  lIdx: Cardinal;
+  lCompare: KBPointerMath;
+  lOffset: KBPointerMath;
+  lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lFieldTable^.Count = 0 then
   begin
@@ -491,7 +520,7 @@ begin
     lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
 
     Inc(Result, DynamicGetSize_Array(
-      Pointer(Cardinal(ADynamic) + lOffset),
+      Pointer(KBPointerMath(ADynamic) + lOffset),
       lTypeInfo,
       1,
       AOptions
@@ -499,7 +528,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(Cardinal(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -512,25 +541,25 @@ begin
 end;
 
 function DynamicGetSize_DynArray(ADynamic: Pointer; ATypeInfo: PTypeInfo;
-  const AOptions: TKBDynamicOptions): Cardinal;
+  const AOptions: TKBDynamicOptions): KBSize;
 var
   lDyn: PDynArrayTypeInfo;
-  lLen: Cardinal;
+  lLen: KBArrayLen;
 begin
   if kdoLimitToWordSize in AOptions then
     Result := SizeOf(Word)
-  else
-    Result := SizeOf(Cardinal); // dynamic array length
+  else                       // TODO: x64 vs. x86
+    Result := SizeOf(KBArrayLen); // dynamic array length
 
   if PPointer(ADynamic)^ = nil then
     Exit;
 
-  lLen := PCardinal(PCardinal(ADynamic)^ - 4)^;
+  lLen := PKBArrayLen(PKBPointerMath(ADynamic)^ - SizeOf(KBArrayLen))^;
 
   if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
     raise EKBDynamicWordLimit.Create(lLen);
 
-  lDyn := PDynArrayTypeInfo(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
     Inc(Result, lLen * lDyn^.elSize)
@@ -544,10 +573,10 @@ begin
 end;
 
 function DynamicGetSize_Array(ADynamic: Pointer; ATypeInfo: PTypeInfo;
-  ALength: Cardinal; const AOptions: TKBDynamicOptions): Cardinal;
+  ALength: KBArrayLen; const AOptions: TKBDynamicOptions): KBSize;
 var
   lFieldTable: PFieldTable;
-  lLen: Integer;
+  lStrLen: KBStrLen;
 begin
   Result := 0;
 
@@ -559,20 +588,20 @@ begin
     while ALength > 0 do
     begin
       if kdoLimitToWordSize in AOptions then
-        Inc(Result, SizeOf(Word))  // string length
+        Inc(Result, SizeOf(Word))  // string length limited
       else
-        Inc(Result, SizeOf(Integer)); // string length
+        Inc(Result, SizeOf(KBStrLen)); // string length
 
       if PPointer(ADynamic)^ <> nil then
       begin
-        lLen := Length(PAnsiString(ADynamic)^);
+        lStrLen := Length(PAnsiString(ADynamic)^);
 
-        if lLen > 0 then
+        if lStrLen > 0 then
         begin
-          if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            raise EKBDynamicWordLimit.Create(lLen);
+          if (kdoLimitToWordSize in AOptions) and (lStrLen > MAXWORD) then
+            raise EKBDynamicWordLimit.Create(lStrLen);
 
-          Inc(Result, lLen * SizeOf(AnsiChar));
+          Inc(Result, lStrLen * SizeOf(AnsiChar));
           if kdoAnsiStringCodePage in AOptions then
             Inc(Result, SizeOf(Word) {CodePage});
         end;
@@ -586,35 +615,35 @@ begin
     while ALength > 0 do
     begin
       if kdoLimitToWordSize in AOptions then
-        Inc(Result, SizeOf(Word))  // string length
+        Inc(Result, SizeOf(Word))  // string length limited
       else
-        Inc(Result, SizeOf(Integer)); // string length
+        Inc(Result, SizeOf(KBStrLen)); // string length
 
       if PPointer(ADynamic)^ <> nil then
       begin
-        lLen := Length(PWideString(ADynamic)^);
+        lStrLen := Length(PWideString(ADynamic)^);
 
-        if lLen > 0 then
+        if lStrLen > 0 then
         begin
           if kdoUTF16ToUTF8 in AOptions then
           begin
-            lLen := WideCharToMultiByte(
+            lStrLen := WideCharToMultiByte(
               CP_UTF8, 0,
-              PWideChar(ADynamic^), lLen,
+              PWideChar(ADynamic^), lStrLen,
               nil, 0,
               nil, nil);
 
-            if lLen = 0 then
+            if lStrLen = 0 then
               RaiseLastOSError;
           end;
 
-          if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            raise EKBDynamicWordLimit.Create(lLen);
+          if (kdoLimitToWordSize in AOptions) and (lStrLen > MAXWORD) then
+            raise EKBDynamicWordLimit.Create(lStrLen);
 
           if kdoUTF16ToUTF8 in AOptions then
-            Inc(Result, lLen)
+            Inc(Result, lStrLen)
           else
-            Inc(Result, lLen * SizeOf(WideChar));
+            Inc(Result, lStrLen * SizeOf(WideChar));
         end;
       end;
 
@@ -627,35 +656,35 @@ begin
     while ALength > 0 do
     begin
       if kdoLimitToWordSize in AOptions then
-        Inc(Result, SizeOf(Word))  // string length
+        Inc(Result, SizeOf(Word))  // string length limited
       else
-        Inc(Result, SizeOf(Integer)); // string length
+        Inc(Result, SizeOf(KBStrLen)); // string length
 
       if PPointer(ADynamic)^ <> nil then
       begin
-        lLen := Length(PUnicodeString(ADynamic)^);
+        lStrLen := Length(PUnicodeString(ADynamic)^);
 
-        if lLen > 0 then
+        if lStrLen > 0 then
         begin
           if kdoUTF16ToUTF8 in AOptions then
           begin
-            lLen := WideCharToMultiByte(
+            lStrLen := WideCharToMultiByte(
               CP_UTF8, 0,
-              PWideChar(ADynamic^), lLen,
+              PWideChar(ADynamic^), lStrLen,
               nil, 0,
               nil, nil);
 
-            if lLen = 0 then
+            if lStrLen = 0 then
               RaiseLastOSError;
           end;
 
-          if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
-            raise EKBDynamicWordLimit.Create(lLen);
+          if (kdoLimitToWordSize in AOptions) and (lStrLen > MAXWORD) then
+            raise EKBDynamicWordLimit.Create(lStrLen);
 
           if kdoUTF16ToUTF8 in AOptions then
-            Inc(Result, lLen)
+            Inc(Result, lStrLen)
           else
-            Inc(Result, lLen * SizeOf(WideChar));
+            Inc(Result, lStrLen * SizeOf(WideChar));
         end;
       end;
 
@@ -666,7 +695,7 @@ begin
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         Inc(Result, DynamicGetSize_Array(
@@ -676,18 +705,18 @@ begin
           AOptions
         ));
 
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(Integer(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         Inc(Result, DynamicGetSize_Record(ADynamic, ATypeInfo, AOptions));
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
@@ -696,7 +725,7 @@ begin
     while ALength > 0 do
     begin
       Inc(Result, DynamicGetSize_DynArray(ADynamic, ATypeInfo, AOptions));
-      Inc(Integer(ADynamic), SizeOf(Integer));
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64
       Dec(ALength);
     end;
   else
@@ -709,18 +738,18 @@ end;
 // -----------------------------------------------------------------------------
 
 procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal; const AOptions: TKBDynamicOptions); forward;
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
 procedure DynamicWrite_Record(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
 var
   lFieldTable: PFieldTable;
-  lCompare: Cardinal;
-  lOffset: Cardinal;
-  lIdx: Cardinal;
+  lCompare: KBPointerMath;
+  lOffset: KBPointerMath;
+  lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lFieldTable^.Count = 0 then
   begin
@@ -737,7 +766,7 @@ begin
 
     if lCompare < lOffset then
     begin
-      AStream.WriteBuffer(PByte((Cardinal(ADynamic) + lCompare))^, lOffset - lCompare);
+      AStream.WriteBuffer(PByte((KBPointerMath(ADynamic) + lCompare))^, lOffset - lCompare);
 
       Inc(lCompare, lOffset - lCompare);
     end;
@@ -746,7 +775,7 @@ begin
 
     DynamicWrite_Array(
       AStream,
-      Pointer(Cardinal(ADynamic) + lOffset),
+      Pointer(KBPointerMath(ADynamic) + lOffset),
       lTypeInfo,
       1,
       AOptions
@@ -754,7 +783,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(Cardinal(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -763,19 +792,19 @@ begin
   end;
 
   if lCompare < lFieldTable^.Size then
-    AStream.WriteBuffer(PByte(Cardinal(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
+    AStream.WriteBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicWrite_DynArray(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
 var
   lDyn: PDynArrayTypeInfo;
-  lLen: Cardinal;
+  lLen: KBArrayLen;
 begin
   if PPointer(ADynamic)^ = nil then
     lLen := 0
   else
-    lLen := PCardinal(PCardinal(ADynamic)^ - SizeOf(Cardinal))^;
+    lLen := PKBArrayLen(PKBPointerMath(ADynamic)^ - SizeOf(KBArrayLen))^;
 
   if kdoLimitToWordSize in AOptions then
   begin
@@ -784,12 +813,12 @@ begin
 
     AStream.WriteBuffer(lLen, SizeOf(Word));
   end else
-    AStream.WriteBuffer(lLen, SizeOf(Cardinal));
+    AStream.WriteBuffer(lLen, SizeOf(KBArrayLen)); // TODO: x64 vs x86
 
   if lLen = 0 then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
     AStream.WriteBuffer(PByte(ADynamic^)^, lLen * lDyn^.elSize)
@@ -804,10 +833,10 @@ begin
 end;
 
 procedure DynamicWrite_UTF16AsUFT8(AStream: TStream; APWideChar: PPWideChar;
-  ALen: Cardinal; const AOptions: TKBDynamicOptions);
+  ALen: KBStrLen; const AOptions: TKBDynamicOptions);
 var
   lUTF8: PAnsiChar;
-  lLen: Integer;
+  lStrLen: KBStrLen;
   lErr: DWORD;
 begin
   if ALen = 0 then
@@ -815,21 +844,21 @@ begin
     if kdoLimitToWordSize in AOptions then
       AStream.WriteBuffer(ALen, SizeOf(Word))
     else
-      AStream.WriteBuffer(ALen, SizeOf(Cardinal));
+      AStream.WriteBuffer(ALen, SizeOf(KBStrLen));
 
     Exit;
   end;
 
   // Allocate buffer to cover whole Unicode BMP in UTF-8
   GetMem(lUTF8, ALen * 3);
-  lLen := WideCharToMultiByte(
+  lStrLen := WideCharToMultiByte(
     CP_UTF8, 0,
     APWideChar^, ALen,
     lUTF8, ALen * 3,
     nil, nil);
 
   // Very rare case (if ALen*3 is too small) - for strings filled with chars of Unicode Supplementary Plane
-  if lLen = 0 then
+  if lStrLen = 0 then
   begin
     lErr := GetLastError; // FreeMem can call eg. VirtualFree, so GLE must be saved before FreeMem call
 
@@ -840,25 +869,25 @@ begin
       RaiseLastOSError(lErr);
 
     // Get required buf size and allocate it
-    lLen := WideCharToMultiByte(
+    lStrLen := WideCharToMultiByte(
       CP_UTF8, 0,
       APWideChar^, ALen,
       nil, 0,
       nil, nil);
 
-    if lLen = 0 then
+    if lStrLen = 0 then
       RaiseLastOSError;
 
-    GetMem(lUTF8, lLen);
+    GetMem(lUTF8, lStrLen);
 
     // Convert to UTF8
-    lLen := WideCharToMultiByte(
+    lStrLen := WideCharToMultiByte(
       CP_UTF8, 0,
       APWideChar^, ALen,
-      lUTF8, lLen,
+      lUTF8, lStrLen,
       nil, nil);
 
-    if lLen = 0 then
+    if lStrLen = 0 then
     begin
       lErr := GetLastError;
       FreeMem(lUTF8);
@@ -869,25 +898,25 @@ begin
 
   if kdoLimitToWordSize in AOptions then
   begin
-    if lLen > MAXWORD then
+    if lStrLen > MAXWORD then
     begin
       FreeMem(lUTF8);
-      raise EKBDynamicWordLimit.Create(lLen);
+      raise EKBDynamicWordLimit.Create(lStrLen);
     end;
 
-    if AStream.Write(lLen, SizeOf(Word)) <> SizeOf(Word) then
+    if AStream.Write(lStrLen, SizeOf(Word)) <> SizeOf(Word) then
     begin
       FreeMem(lUTF8);
       raise EWriteError.CreateRes(@SWriteError);
     end;
   end else
-    if AStream.Write(lLen, SizeOf(Cardinal)) <> SizeOf(Cardinal) then
+    if AStream.Write(lStrLen, SizeOf(KBStrLen)) <> SizeOf(KBStrLen) then
     begin
       FreeMem(lUTF8);
       raise EWriteError.CreateRes(@SWriteError);
     end;
 
-  if AStream.Write(lUTF8^, lLen) <> lLen then
+  if AStream.Write(lUTF8^, lStrLen) <> lStrLen then
   begin
     FreeMem(lUTF8);
     raise EWriteError.CreateRes(@SWriteError);
@@ -897,10 +926,10 @@ begin
 end;
 
 procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal; const AOptions: TKBDynamicOptions);
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions);
 var
   lFieldTable: PFieldTable;
-  lLen: Cardinal;
+  lStrLen: KBStrLen;
   lCP: Word;
 begin
   if ALength = 0 then
@@ -911,27 +940,27 @@ begin
     while ALength > 0 do
     begin
       if PPointer(ADynamic)^ = nil then
-        lLen := 0
+        lStrLen := 0
       else
-        lLen := Length(PAnsiString(ADynamic)^);
+        lStrLen := Length(PAnsiString(ADynamic)^);
 
       if kdoLimitToWordSize in AOptions then
       begin
-        if lLen > MAXWORD then
-          raise EKBDynamicWordLimit.Create(lLen);
+        if lStrLen > MAXWORD then
+          raise EKBDynamicWordLimit.Create(lStrLen);
 
-        AStream.WriteBuffer(lLen, SizeOf(Word));
+        AStream.WriteBuffer(lStrLen, SizeOf(Word));
       end else
-        AStream.WriteBuffer(lLen, SizeOf(Cardinal));;
+        AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
 
-      if lLen > 0 then
+      if lStrLen > 0 then
       begin
-        AStream.WriteBuffer(PByte(ADynamic^)^, lLen * SizeOf(AnsiChar));
+        AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
 
         if kdoAnsiStringCodePage in AOptions then
         begin
 {$IFDEF KBDYNAMIC_UNICODE}
-          lCP := PWord(PCardinal(ADynamic)^ - 12)^; // StrRec.codePage
+          lCP := PWord(PKBPointerMath(ADynamic)^ - 12)^; // StrRec.codePage
 {$ELSE}
           lCP := GetACP; // TODO: System.DefaultSystemCodePage
 {$ENDIF}
@@ -947,25 +976,25 @@ begin
     while ALength > 0 do
     begin
       if PPointer(ADynamic)^ = nil then
-        lLen := 0
+        lStrLen := 0
       else
-        lLen := Length(PWideString(ADynamic)^);
+        lStrLen := Length(PWideString(ADynamic)^);
 
       if kdoUTF16ToUTF8 in AOptions then
-        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lLen, AOptions)
+        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lStrLen, AOptions)
       else
       begin
         if kdoLimitToWordSize in AOptions then
         begin
-          if lLen > MAXWORD then
-            raise EKBDynamicWordLimit.Create(lLen);
+          if lStrLen > MAXWORD then
+            raise EKBDynamicWordLimit.Create(lStrLen);
 
-          AStream.WriteBuffer(lLen, SizeOf(Word));
+          AStream.WriteBuffer(lStrLen, SizeOf(Word));
         end else
-          AStream.WriteBuffer(lLen, SizeOf(Cardinal));;
+          AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
 
-        if lLen > 0 then
-          AStream.WriteBuffer(PByte(ADynamic^)^, lLen * SizeOf(WideChar));
+        if lStrLen > 0 then
+          AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
       end;
 
       Inc(PPointer(ADynamic));
@@ -977,25 +1006,25 @@ begin
     while ALength > 0 do
     begin
       if PPointer(ADynamic)^ = nil then
-        lLen := 0
+        lStrLen := 0
       else
-        lLen := Length(PUnicodeString(ADynamic)^);
+        lStrLen := Length(PUnicodeString(ADynamic)^);
 
       if kdoUTF16ToUTF8 in AOptions then
-        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lLen, AOptions)
+        DynamicWrite_UTF16AsUFT8(AStream, ADynamic, lStrLen, AOptions)
       else
       begin
         if kdoLimitToWordSize in AOptions then
         begin
-          if lLen > MAXWORD then
-            raise EKBDynamicWordLimit.Create(lLen);
+          if lStrLen > MAXWORD then
+            raise EKBDynamicWordLimit.Create(lStrLen);
 
-          AStream.WriteBuffer(lLen, SizeOf(Word));
+          AStream.WriteBuffer(lStrLen, SizeOf(Word));
         end else
-          AStream.WriteBuffer(lLen, SizeOf(Cardinal));;
+          AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
 
-        if lLen > 0 then
-          AStream.WriteBuffer(PByte(ADynamic^)^, lLen * SizeOf(WideChar));
+        if lStrLen > 0 then
+          AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
       end;
 
       Inc(PPointer(ADynamic));
@@ -1005,23 +1034,23 @@ begin
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         DynamicWrite_Array(AStream, ADynamic, lFieldTable.Fields[0].TypeInfo^,
           lFieldTable.Count, AOptions);
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(Integer(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         DynamicWrite_Record(AStream, ADynamic, ATypeInfo, AOptions);
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
@@ -1030,7 +1059,7 @@ begin
     while ALength > 0 do
     begin
       DynamicWrite_DynArray(AStream, ADynamic, ATypeInfo, AOptions);
-      Inc(Integer(ADynamic), SizeOf(Integer));
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64 vs x86
       Dec(ALength);
     end;
   else
@@ -1043,18 +1072,18 @@ end;
 // -----------------------------------------------------------------------------
 
 procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal; const AOptions: TKBDynamicOptions); forward;
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
 procedure DynamicRead_Record(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
 var
   lFieldTable: PFieldTable;
-  lCompare: Cardinal;
-  lOffset: Cardinal;
-  lIdx: Cardinal;
+  lCompare: KBPointerMath;
+  lOffset: KBPointerMath;
+  lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lFieldTable^.Count = 0 then
   begin
@@ -1071,7 +1100,7 @@ begin
 
     if lCompare < lOffset then
     begin
-      AStream.ReadBuffer(PByte(Cardinal(ADynamic) + lCompare)^, lOffset - lCompare);
+      AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lOffset - lCompare);
       Inc(lCompare, lOffset - lCompare);
     end;
 
@@ -1079,7 +1108,7 @@ begin
 
     DynamicRead_Array(
       AStream,
-      Pointer(Cardinal(ADynamic) + lOffset),
+      Pointer(KBPointerMath(ADynamic) + lOffset),
       lTypeInfo,
       1,
       AOptions
@@ -1087,7 +1116,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(Cardinal(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -1096,28 +1125,28 @@ begin
   end;
 
   if lCompare < lFieldTable^.Size then
-    AStream.ReadBuffer(PByte(Cardinal(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
+    AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicRead_DynArray(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
 var
   lDyn: PDynArrayTypeInfo;
-  lLen: Cardinal;
+  lLen: KBArrayLen;
 begin
   if kdoLimitToWordSize in AOptions then
   begin
     lLen := 0;
     AStream.ReadBuffer(lLen, SizeOf(Word));
   end else
-    AStream.ReadBuffer(lLen, SizeOf(Cardinal));
+    AStream.ReadBuffer(lLen, SizeOf(KBArrayLen));
 
   DynArraySetLength(PPointer(ADynamic)^, ATypeInfo, 1, @lLen);
 
   if lLen = 0 then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(Cardinal(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
     AStream.ReadBuffer(PByte(ADynamic^)^, lLen * lDyn^.elSize)
@@ -1132,10 +1161,10 @@ begin
 end;
 
 procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; ALength: Cardinal; const AOptions: TKBDynamicOptions);
+  ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions);
 var
   lFieldTable: PFieldTable;
-  lLen: Integer;
+  lStrLen: KBStrLen;
   lUTF8: PAnsiChar;
   lErr: DWORD;
 begin
@@ -1148,19 +1177,19 @@ begin
     begin
       if kdoLimitToWordSize in AOptions then
       begin
-        lLen := 0;
-        AStream.ReadBuffer(lLen, SizeOf(Word));
+        lStrLen := 0;
+        AStream.ReadBuffer(lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lLen, SizeOf(Cardinal));
+        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
 
-      SetLength(PAnsiString(ADynamic)^, lLen);
+      SetLength(PAnsiString(ADynamic)^, lStrLen);
 
-      if lLen > 0 then
+      if lStrLen > 0 then
       begin
-        AStream.ReadBuffer(PByte(ADynamic^)^, lLen * SizeOf(AnsiChar));
+        AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
         if kdoAnsiStringCodePage in AOptions then
 {$IFDEF KBDYNAMIC_UNICODE}
-          AStream.ReadBuffer(PWord(PCardinal(ADynamic)^ - 12)^, SizeOf(Word));   // StrRec.codePage
+          AStream.ReadBuffer(PWord(PKBPointerMath(ADynamic)^ - 12)^, SizeOf(Word));   // StrRec.codePage
 {$ELSE}
           AStream.Seek(SizeOf(Word), soFromCurrent); // TODO: try to convert from one codepage to another
 {$ENDIF}
@@ -1175,31 +1204,31 @@ begin
     begin
       if kdoLimitToWordSize in AOptions then
       begin
-        lLen := 0;
-        AStream.ReadBuffer(lLen, SizeOf(Word));
+        lStrLen := 0;
+        AStream.ReadBuffer(lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lLen, SizeOf(Cardinal));
+        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
 
-      if lLen = 0 then
+      if lStrLen = 0 then
         SetLength(PWideString(ADynamic)^, 0)
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
           // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
-          SetLength(PWideString(ADynamic)^, lLen);
-          GetMem(lUTF8, lLen);
-          if AStream.Read(lUTF8^, lLen) <> lLen then
+          SetLength(PWideString(ADynamic)^, lStrLen);
+          GetMem(lUTF8, lStrLen);
+          if AStream.Read(lUTF8^, lStrLen) <> lStrLen then
           begin
             FreeMem(lUTF8);
             raise EReadError.CreateRes(@SReadError);
           end;
 
-          lLen := MultiByteToWideChar(
+          lStrLen := MultiByteToWideChar(
             CP_UTF8, 0,
-            lUTF8, lLen,
-            PPWideChar(ADynamic)^, lLen);
+            lUTF8, lStrLen,
+            PPWideChar(ADynamic)^, lStrLen);
 
-          if lLen = 0 then
+          if lStrLen = 0 then
           begin
             lErr := GetLastError;
 
@@ -1209,12 +1238,12 @@ begin
           end else
             FreeMem(lUTF8);
 
-          SetLength(PWideString(ADynamic)^, lLen);
+          SetLength(PWideString(ADynamic)^, lStrLen);
         end else
         begin
-          SetLength(PWideString(ADynamic)^, lLen);
+          SetLength(PWideString(ADynamic)^, lStrLen);
 
-          AStream.ReadBuffer(PByte(ADynamic^)^, lLen * SizeOf(WideChar));
+          AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
         end;
 
       Inc(PPointer(ADynamic));
@@ -1227,31 +1256,31 @@ begin
     begin
       if kdoLimitToWordSize in AOptions then
       begin
-        lLen := 0;
-        AStream.ReadBuffer(lLen, SizeOf(Word));
+        lStrLen := 0;
+        AStream.ReadBuffer(lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lLen, SizeOf(Cardinal));
+        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
 
-      if lLen = 0 then
+      if lStrLen = 0 then
         SetLength(PUnicodeString(ADynamic)^, 0)
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
           // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
-          SetLength(PUnicodeString(ADynamic)^, lLen);
-          GetMem(lUTF8, lLen);
-          if AStream.Read(lUTF8^, lLen) <> lLen then
+          SetLength(PUnicodeString(ADynamic)^, lStrLen);
+          GetMem(lUTF8, lStrLen);
+          if AStream.Read(lUTF8^, lStrLen) <> lStrLen then
           begin
             FreeMem(lUTF8);
             raise EReadError.CreateRes(@SReadError);
           end;
 
-          lLen := MultiByteToWideChar(
+          lStrLen := MultiByteToWideChar(
             CP_UTF8, 0,
-            lUTF8, lLen,
-            PPWideChar(ADynamic)^, lLen);
+            lUTF8, lStrLen,
+            PPWideChar(ADynamic)^, lStrLen);
 
-          if lLen = 0 then
+          if lStrLen = 0 then
           begin
             lErr := GetLastError;
 
@@ -1261,12 +1290,12 @@ begin
           end else
             FreeMem(lUTF8);
 
-          SetLength(PUnicodeString(ADynamic)^, lLen);
+          SetLength(PUnicodeString(ADynamic)^, lStrLen);
         end else
         begin
-          SetLength(PUnicodeString(ADynamic)^, lLen);
+          SetLength(PUnicodeString(ADynamic)^, lStrLen);
 
-          AStream.ReadBuffer(PByte(ADynamic^)^, lLen * SizeOf(WideChar));
+          AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
         end;
 
       Inc(PPointer(ADynamic));
@@ -1276,7 +1305,7 @@ begin
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(Cardinal(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         DynamicRead_Array(
@@ -1286,18 +1315,18 @@ begin
           lFieldTable.Count,
           AOptions);
 
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(Integer(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
         DynamicRead_Record(AStream, ADynamic, ATypeInfo, AOptions);
-        Inc(Integer(ADynamic), lFieldTable.Size);
+        Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
     end;
@@ -1306,7 +1335,7 @@ begin
     while ALength > 0 do
     begin
       DynamicRead_DynArray(AStream, ADynamic, ATypeInfo, AOptions);
-      Inc(Integer(ADynamic), SizeOf(Integer));
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64 vs x86
       Dec(ALength);
     end;
   else
@@ -1323,13 +1352,13 @@ begin
 end;
 
 class function TKBDynamic.GetSize(const ADynamicType;
-  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions): Cardinal;
+  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions): KBSize;
 begin
   Result := SizeOf(TKBDynamicHeader) + GetSizeNH(ADynamicType, ATypeInfo, AOptions);
 end;
 
 class function TKBDynamic.GetSizeNH(const ADynamicType;
-  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions): Cardinal;
+  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions): KBSize;
 begin
   Result := DynamicGetSize_Array(@ADynamicType, ATypeInfo, 1, AOptions);
 end;
@@ -1427,7 +1456,7 @@ end;
 
 { EKBDynamicWordLimit }
 
-constructor EKBDynamicWordLimit.Create(ALen: Integer);
+constructor EKBDynamicWordLimit.Create(ALen: KBArrayLen);
 begin
   inherited CreateFmt('Invalid dynamic array size %d (max 65535)', [ALen]);
 end;
