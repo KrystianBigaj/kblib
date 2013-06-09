@@ -11,7 +11,7 @@
  See TestuKBDynamic.pas and Demos for some examples of usage.
 
  Notes:
-  - Streams are not fully compatible  DU* vs. DNU*
+  - Streams are not fully compatible DU* vs. DNU*
     (only if you are using AnsiString).
   - If you care about stream compatibility (DU vs. DNU),
     as String type use always UnicodeString (for DNU it's defined as WideString).
@@ -19,7 +19,7 @@
   - In DNU CodePage for AnsiString is stored as Windows.GetACP
     (it should be System.DefaultSystemCodePage, but I cannot get this under D2006).
     CodePage currently is not used in DNU at all. It's only to make binary
-    stream compatible  DN vs. DNU. It will probably change in future.
+    stream compatible DN vs. DNU. It will probably change in future.
   - In DU CodePage for AnsiString is used as is should be.
   - To speed-up writing to stream, APreAllocSize is by default set to True.
   - For obvious reason, any pointers or pointer types
@@ -112,7 +112,7 @@ type
                               // - records MUST be defined as 'packed record' !!!
                               // - you cannot use non-dynamic types that have different size depending on architecture,
                               //   so avoid types like: NativeInt, NativeUInt, Extended,
-                              //   Pointer types of any kind (Pointer, PChar, TObject, ...)
+                              //   pointer types of any kind (Pointer, PChar, TObject, ...)
                               // - you cannot use dynamic arrays with more elements than MaxInt (2147483647),
                               //   but this one should not be a problem :)
                               //
@@ -228,20 +228,15 @@ type
     // and now you want to read that record on x64 then set AForceCPUArchCompatibilityOnStreamV1=True,
     // but define record as (on x64, and if you want also on x86):
     //
-    //    TMyRecord = packed record
+    //    TMyRecord = packed record   // record must be 'packed'
     //      SomeSwitch: Boolean;
-    //      _SomeSwitch_Pad1: Byte; // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
-    //      _SomeSwitch_Pad2: Byte;
-    //      _SomeSwitch_Pad3: Byte;
+    //      _SomeSwitch_Pading: array[0..2] of Byte;  // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
     //
     //      SomeByte: Byte;
-    //      _SomeByte_Pad1: Byte; // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
-    //      _SomeByte_Pad2: Byte;
-    //      _SomeByte_Pad3: Byte;
+    //      _SomeByte_Pading: array[0..2] of Byte;    // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
     //
     //      SomeWord: Word;
-    //      _SomeWord_Pad1: Byte; // 2 bytes of padding, to make field size same on x64 and x86 with 'packed record'
-    //      _SomeWord_Pad2: Byte;
+    //      _SomeWord_Pading: array[0..1] of Byte;    // 2 bytes of padding, to make field size same on x64 and x86 with 'packed record'
     //      Str: String;
     //    end;
     class function ReadFrom(AStream: TStream; const ADynamicType;
@@ -344,19 +339,16 @@ function DynamicCompare_Array(ADynamic1, ADynamic2: Pointer;
   ATypeInfo: PTypeInfo; ALength: KBArrayLen): Boolean; forward;
 
 function DynamicCompare_Record(ADynamic1, ADynamic2: Pointer;
-  ATypeInfo: PTypeInfo): Boolean;
+  AFieldTable: PFieldTable): Boolean;
 var
-  lFieldTable: PFieldTable;
   lCompare: KBPointerMath;
   lOffset: KBPointerMath;
   lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
-
-  if lFieldTable^.Count = 0 then
+  if AFieldTable^.Count = 0 then
   begin
-    Result := CompareMem(ADynamic1, ADynamic2, lFieldTable^.Size);
+    Result := CompareMem(ADynamic1, ADynamic2, AFieldTable^.Size);
     Exit;
   end;
 
@@ -364,9 +356,9 @@ begin
   lCompare := 0;
   lIdx := 0;
 
-  while (lCompare < lFieldTable^.Size) and (lIdx < lFieldTable^.Count) do
+  while (lCompare < AFieldTable^.Size) and (lIdx < AFieldTable^.Count) do
   begin
-    lOffset := lFieldTable^.Fields[lIdx].Offset;
+    lOffset := AFieldTable^.Fields[lIdx].Offset;
 
     if lCompare < lOffset then
       if CompareMem(
@@ -378,7 +370,7 @@ begin
       else
         Exit;
 
-    lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
+    lTypeInfo := AFieldTable^.Fields[lIdx].TypeInfo^;
 
     if DynamicCompare_Array(
       Pointer(KBPointerMath(ADynamic1) + lOffset),
@@ -399,11 +391,11 @@ begin
     Inc(lIdx);
   end;
 
-  if lCompare < lFieldTable^.Size then
+  if lCompare < AFieldTable^.Size then
     if not CompareMem(
       Pointer(KBPointerMath(ADynamic1) + lCompare),
       Pointer(KBPointerMath(ADynamic2) + lCompare),
-      lFieldTable^.Size - lCompare
+      AFieldTable^.Size - lCompare
     ) then
       Exit;
 
@@ -518,7 +510,7 @@ begin
       lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
-        if not DynamicCompare_Record(ADynamic1, ADynamic2, ATypeInfo) then
+        if not DynamicCompare_Record(ADynamic1, ADynamic2, lFieldTable) then
           Exit;
 
         Inc(KBPointerMath(ADynamic1), lFieldTable.Size);
@@ -551,20 +543,17 @@ end;
 function DynamicGetSize_Array(ADynamic: Pointer; ATypeInfo: PTypeInfo;
   ALength: KBArrayLen; const AOptions: TKBDynamicOptions): KBSize; forward;
 
-function DynamicGetSize_Record(ADynamic: Pointer; ATypeInfo: PTypeInfo;
+function DynamicGetSize_Record(ADynamic: Pointer; AFieldTable: PFieldTable;
   const AOptions: TKBDynamicOptions): KBSize;
 var
-  lFieldTable: PFieldTable;
   lCompare: KBPointerMath;
   lOffset: KBPointerMath;
   lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
-
-  if lFieldTable^.Count = 0 then
+  if AFieldTable^.Count = 0 then
   begin
-    Result := lFieldTable^.Size;
+    Result := AFieldTable^.Size;
     Exit;
   end;
 
@@ -572,9 +561,9 @@ begin
   lIdx := 0;
   Result := 0;
 
-  while (lCompare < lFieldTable^.Size) and (lIdx < lFieldTable^.Count) do
+  while (lCompare < AFieldTable^.Size) and (lIdx < AFieldTable^.Count) do
   begin
-    lOffset := lFieldTable^.Fields[lIdx].Offset;
+    lOffset := AFieldTable^.Fields[lIdx].Offset;
 
     if lCompare < lOffset then
     begin
@@ -583,7 +572,7 @@ begin
       Inc(lCompare, lOffset - lCompare)
     end;
 
-    lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
+    lTypeInfo := AFieldTable^.Fields[lIdx].TypeInfo^;
 
     Inc(Result, DynamicGetSize_Array(
       Pointer(KBPointerMath(ADynamic) + lOffset),
@@ -602,8 +591,8 @@ begin
     Inc(lIdx);
   end;
 
-  if lCompare < lFieldTable^.Size then
-    Inc(Result, lFieldTable^.Size - lCompare);
+  if lCompare < AFieldTable^.Size then
+    Inc(Result, AFieldTable^.Size - lCompare);
 end;
 
 function DynamicGetSize_DynArray(ADynamic: Pointer; ATypeInfo: PTypeInfo;
@@ -789,7 +778,7 @@ begin
       lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
-        Inc(Result, DynamicGetSize_Record(ADynamic, ATypeInfo, AOptions));
+        Inc(Result, DynamicGetSize_Record(ADynamic, lFieldTable, AOptions));
         Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
@@ -815,28 +804,25 @@ procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
 procedure DynamicWrite_Record(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
+  AFieldTable: PFieldTable; const AOptions: TKBDynamicOptions);
 var
-  lFieldTable: PFieldTable;
   lCompare: KBPointerMath;
   lOffset: KBPointerMath;
   lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
-
-  if lFieldTable^.Count = 0 then
+  if AFieldTable^.Count = 0 then
   begin
-    AStream.WriteBuffer(PByte(ADynamic)^, lFieldTable.Size);
+    AStream.WriteBuffer(PByte(ADynamic)^, AFieldTable.Size);
     Exit;
   end;
 
   lCompare := 0;
   lIdx := 0;
 
-  while (lCompare < lFieldTable^.Size) and (lIdx < lFieldTable^.Count) do
+  while (lCompare < AFieldTable^.Size) and (lIdx < AFieldTable^.Count) do
   begin
-    lOffset := lFieldTable^.Fields[lIdx].Offset;
+    lOffset := AFieldTable^.Fields[lIdx].Offset;
 
     if lCompare < lOffset then
     begin
@@ -845,7 +831,7 @@ begin
       Inc(lCompare, lOffset - lCompare);
     end;
 
-    lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
+    lTypeInfo := AFieldTable^.Fields[lIdx].TypeInfo^;
 
     DynamicWrite_Array(
       AStream,
@@ -865,8 +851,8 @@ begin
     Inc(lIdx);
   end;
 
-  if lCompare < lFieldTable^.Size then
-    AStream.WriteBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
+  if lCompare < AFieldTable^.Size then
+    AStream.WriteBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicWrite_DynArray(AStream: TStream; ADynamic: Pointer;
@@ -1132,7 +1118,7 @@ begin
       lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
-        DynamicWrite_Record(AStream, ADynamic, ATypeInfo, AOptions);
+        DynamicWrite_Record(AStream, ADynamic, lFieldTable, AOptions);
         Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
@@ -1158,28 +1144,25 @@ procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
 procedure DynamicRead_Record(AStream: TStream; ADynamic: Pointer;
-  ATypeInfo: PTypeInfo; const AOptions: TKBDynamicOptions);
+  AFieldTable: PFieldTable; const AOptions: TKBDynamicOptions);
 var
-  lFieldTable: PFieldTable;
   lCompare: KBPointerMath;
   lOffset: KBPointerMath;
   lIdx: KBPointerMath;
   lTypeInfo: PTypeInfo;
 begin
-  lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
-
-  if lFieldTable^.Count = 0 then
+  if AFieldTable^.Count = 0 then
   begin
-    AStream.ReadBuffer(PByte(ADynamic)^, lFieldTable.Size);
+    AStream.ReadBuffer(PByte(ADynamic)^, AFieldTable.Size);
     Exit;
   end;
 
   lCompare := 0;
   lIdx := 0;
 
-  while (lCompare < lFieldTable^.Size) and (lIdx < lFieldTable^.Count) do
+  while (lCompare < AFieldTable^.Size) and (lIdx < AFieldTable^.Count) do
   begin
-    lOffset := lFieldTable^.Fields[lIdx].Offset;
+    lOffset := AFieldTable^.Fields[lIdx].Offset;
 
     if lCompare < lOffset then
     begin
@@ -1187,7 +1170,7 @@ begin
       Inc(lCompare, lOffset - lCompare);
     end;
 
-    lTypeInfo := lFieldTable^.Fields[lIdx].TypeInfo^;
+    lTypeInfo := AFieldTable^.Fields[lIdx].TypeInfo^;
 
     DynamicRead_Array(
       AStream,
@@ -1207,8 +1190,8 @@ begin
     Inc(lIdx);
   end;
 
-  if lCompare < lFieldTable^.Size then
-    AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lFieldTable^.Size - lCompare);
+  if lCompare < AFieldTable^.Size then
+    AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicRead_DynArray(AStream: TStream; ADynamic: Pointer;
@@ -1413,7 +1396,7 @@ begin
       lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
       while ALength > 0 do
       begin
-        DynamicRead_Record(AStream, ADynamic, ATypeInfo, AOptions);
+        DynamicRead_Record(AStream, ADynamic, lFieldTable, AOptions);
         Inc(KBPointerMath(ADynamic), lFieldTable.Size);
         Dec(ALength);
       end;
