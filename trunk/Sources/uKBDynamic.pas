@@ -6,12 +6,12 @@
  EMail:     krystian.bigaj@gmail.com
  WWW:       http://code.google.com/p/kblib/
 
- Tested on Delphi 2006/2009/XE/XE4.
+ Tested on Delphi 2006/2009/XE/XE4(x64 and x86).
 
  See TestuKBDynamic.pas and Demos for some examples of usage.
 
  Notes:
-  - Streams are not fully compatibile DU* vs. DNU*
+  - Streams are not fully compatible  DU* vs. DNU*
     (only if you are using AnsiString).
   - If you care about stream compatibility (DU vs. DNU),
     as String type use always UnicodeString (for DNU it's defined as WideString).
@@ -19,12 +19,12 @@
   - In DNU CodePage for AnsiString is stored as Windows.GetACP
     (it should be System.DefaultSystemCodePage, but I cannot get this under D2006).
     CodePage currently is not used in DNU at all. It's only to make binary
-    stream comatibile DN vs. DNU. It will probably change in future.
+    stream compatible  DN vs. DNU. It will probably change in future.
   - In DU CodePage for AnsiString is used as is should be.
   - To speed-up writing to stream, APreAllocSize is by default set to True.
   - For obvious reason, any pointers or pointer types
     are stored directly as in memory (like Pointer, PAnsiChar, TForm, etc.)
-  - Because streams are storead as binary, after change in any type you must provide
+  - Because streams are stored as binary, after change in any type you must provide
     version compatibility. If TKBDynamic.ReadFrom returns False, then
     expected version AVersion doesn't match with one stored in stream.
     See Demos\RecordVersions for more details.
@@ -36,7 +36,8 @@
     This could be handled in future (for of course only simple types)
   - ReadFrom can raise exceptions for example in case of invalid stream
     or in out of memory condition
-  - Streams are not compatible between x64 and x86
+  - Streams are not compatible between x64 and x86 unless you use kdoCPUArchCompatibility
+    and provide additional compatibility (read comments on kdoCPUArchCompatibility)
   * DU - Delphi Unicode (Delphi D2009+)
   * DNU - Delphi non-Unicode (older than D2009)
 
@@ -61,7 +62,8 @@ type
   UnicodeString = WideString;
 {$ENDIF}
 
-// D2009 and older. D2009 supports NativeInt/NativeUInt, however compiler is buggy for this types.
+// D2009 and older. D2007/D2009 supports NativeInt/NativeUInt, however compiler is buggy for this types.
+// http://qc.embarcadero.com/wc/qcmain.aspx?d=71292
 {$IF CompilerVersion < 21}
   NativeInt = Integer;
   NativeUInt = Cardinal;
@@ -74,11 +76,14 @@ type
   PKBPointerMath = ^KBPointerMath;
   KBPointerMath = NativeUInt;
 
+  PKBStrLen = ^KBStrLen;
+  KBStrLen = Integer;
+
   PKBArrayLen = ^KBArrayLen;
   KBArrayLen = NativeInt;
 
-  PKBStrLen = ^KBStrLen;
-  KBStrLen = Integer;
+  PKBArrayLen86 = ^KBArrayLen86;
+  KBArrayLen86 = KBStrLen;
 
 { TKBDynamicOption }
 
@@ -96,11 +101,31 @@ type
                               //
                               // Default: Off (unless KBDYNAMIC_DEFAULT_UTF8 is defined)
 
-    kdoLimitToWordSize        // Limits strings/DynArray sizes to Word (65535).
+    kdoLimitToWordSize,       // Limits strings/DynArray sizes to Word (65535).
                               // If it exceeds limit then exception EKBDynamicWordLimit is raised
                               // Useful especially when stream size if important (like transfer streams over internet)
                               //
                               // Default: Off (unless KBDYNAMIC_DEFAULT_WORDSIZE is defined)
+
+    kdoCPUArchCompatibility   // Allows to share streams between x64 and x86 (SEE NOTES below before usage!)
+                              // WARNING: You MUST provide by yourself 'CPU Architecture compatible' records:
+                              // - records MUST be defined as 'packed record' !!!
+                              // - you cannot use non-dynamic types that have different size depending on architecture,
+                              //   so avoid types like: NativeInt, NativeUInt, Extended,
+                              //   Pointer types of any kind (Pointer, PChar, TObject, ...)
+                              // - you cannot use dynamic arrays with more elements than MaxInt (2147483647),
+                              //   but this one should not be a problem :)
+                              //
+                              // Hint: If you saved record with Delphi x86 without kdoCPUArchCompatibility,
+                              // and now you want to read that record o x64 then use ReadFrom with
+                              // AForceCPUArchCompatibilityOnStreamV1=True - read comments!!!
+                              //
+                              // If dynamic array exceeds MaxInt limit then exception EKBDynamicLimit is raised.
+                              //
+                              // If you use kdoLimitToWordSize with kdoCPUArchCompatibility, then
+                              // strings/dynamic arrays will be limited to 65535 elements.
+                              //
+                              // Default: Off (unless KBDYNAMIC_DEFAULT_CPUARCH is defined)
   );
 
   TKBDynamicOptions = set of TKBDynamicOption;
@@ -117,15 +142,19 @@ const
 {$IFDEF KBDYNAMIC_DEFAULT_WORDSIZE}
     ,kdoLimitToWordSize
 {$ENDIF}
+
+{$IFDEF KBDYNAMIC_DEFAULT_CPUARCH}
+    ,kdoCPUArchCompatibility
+{$ENDIF}
   ];
 
-  // Useful options set for transfering streams over internet (safe)
+  // Useful options set for transferring streams over internet (safe)
   TKBDynamicNetworkSafeOptions = [
     kdoAnsiStringCodePage,
     kdoUTF16ToUTF8
   ];
 
-  // Useful options set for transfering streams over internet (less space, but unsafe in some cases)
+  // Useful options set for transferring streams over internet (less space, but unsafe in some cases)
   // Use less space than TKBDynamicNetworkSafeOptions, but:
   // - kdoAnsiStringCodePage is NOT set, so doesn't store CodePage for AnsiString
   //     2 bytes less for each AnsiString
@@ -153,9 +182,16 @@ type
     property TypeKind: TTypeKind read FTypeKind;
   end;
 
+{ EKBDynamicLimit }
+
+  EKBDynamicLimit = class(EKBDynamic)
+  public
+    constructor Create(ALen, AMaxLen: KBArrayLen); reintroduce;
+  end;
+
 { EKBDynamicWordLimit }
 
-  EKBDynamicWordLimit = class(EKBDynamic)
+  EKBDynamicWordLimit = class(EKBDynamicLimit)
   public
     constructor Create(ALen: KBArrayLen); reintroduce;
   end;
@@ -174,8 +210,43 @@ type
       const AOptions: TKBDynamicOptions = TKBDynamicDefaultOptions;
       APreAllocSize: Boolean = True);
 
+    // ReadFrom: Set AForceCPUArchCompatibilityOnStreamV1=True, when you need to read
+    // stream created with Delphi x86 compiler (like saved on disk or in DB),
+    // but you haven't used used latest TKBDynamic with kdoCPUArchCompatibility support.
+    // However, you MUST make your record as 'packed record' and make all
+    // non-dynamic fields same size as default non-packed 'record' on x86.
+    //
+    // For example if you saved record on x86:
+    //
+    //    TMyRecord = record
+    //      SomeSwitch: Boolean; // on x86 it will use 4 bytes, so you need to make 3 bytes padding when using 'packed record'
+    //      SomeByte: Byte;      // on x86 it will use 4 bytes, so you need to make 3 bytes padding when using 'packed record'
+    //      SomeWord: Word;      // on x86 it will use 4 bytes, so you need to make 2 bytes padding when using 'packed record'
+    //      Str: String;
+    //    end;
+    //
+    // and now you want to read that record on x64 then set AForceCPUArchCompatibilityOnStreamV1=True,
+    // but define record as (on x64, and if you want also on x86):
+    //
+    //    TMyRecord = packed record
+    //      SomeSwitch: Boolean;
+    //      _SomeSwitch_Pad1: Byte; // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
+    //      _SomeSwitch_Pad2: Byte;
+    //      _SomeSwitch_Pad3: Byte;
+    //
+    //      SomeByte: Byte;
+    //      _SomeByte_Pad1: Byte; // 3 bytes of padding, to make field size same on x64 and x86 with 'packed record'
+    //      _SomeByte_Pad2: Byte;
+    //      _SomeByte_Pad3: Byte;
+    //
+    //      SomeWord: Word;
+    //      _SomeWord_Pad1: Byte; // 2 bytes of padding, to make field size same on x64 and x86 with 'packed record'
+    //      _SomeWord_Pad2: Byte;
+    //      Str: String;
+    //    end;
     class function ReadFrom(AStream: TStream; const ADynamicType;
-      ATypeInfo: PTypeInfo; AVersion: Word = 1): Boolean;
+      ATypeInfo: PTypeInfo; AVersion: Word = 1;
+      AForceCPUArchCompatibilityOnStreamV1: Boolean = False): Boolean;
 
     // "No Header" version of methods
     // (4 bytes less, but you need take care of of version/compatibility and options)
@@ -208,14 +279,8 @@ type
 
 const
   // Version (1 Byte)
-  cKBDYNAMIC_STREAM_VERSION_v1                 = $01;
-  cKBDYNAMIC_STREAM_VERSION_v2                 = $02;
-
-  {$IFDEF CPUX64}
-  cKBDYNAMIC_STREAM_VERSION                 = cKBDYNAMIC_STREAM_VERSION_v2;
-  {$ELSE}
-  cKBDYNAMIC_STREAM_VERSION                 = cKBDYNAMIC_STREAM_VERSION_v1;
-  {$ENDIF}
+  cKBDYNAMIC_STREAM_VERSION_v1              = $01;
+  cKBDYNAMIC_STREAM_VERSION_v2              = $02;
 
   // CFG (1 Byte)
   cKBDYNAMIC_STREAM_CFG_UNICODE             = $01;  // Stream created in UNICODE version of delphi (D2009+),
@@ -228,7 +293,8 @@ const
 
   cKBDYNAMIC_STREAM_CFG_CODEPAGE            = $08;  // kdoAnsiStringCodePage
 
-//cKBDYNAMIC_STREAM_CFG_XXX                 = $10;
+  cKBDYNAMIC_STREAM_CFG_CPUARCH             = $10;  // kdoCPUArchCompatibility
+
 //cKBDYNAMIC_STREAM_CFG_XXX                 = $20;
 //cKBDYNAMIC_STREAM_CFG_XXX                 = $40;
 //cKBDYNAMIC_STREAM_CFG_XXX                 = $80;
@@ -265,7 +331,7 @@ type
   TDynArrayTypeInfo = packed record
     kind: Byte;
     name: string[0];
-    elSize: Cardinal;
+    elSize: KBArrayLen86;
     elType: ^PDynArrayTypeInfo;
     varType: Integer;
   end;
@@ -548,8 +614,11 @@ var
 begin
   if kdoLimitToWordSize in AOptions then
     Result := SizeOf(Word)
-  else                       // TODO: x64 vs. x86
-    Result := SizeOf(KBArrayLen); // dynamic array length
+  else
+    if kdoCPUArchCompatibility in AOptions then
+      Result := SizeOf(KBArrayLen86)
+    else
+      Result := SizeOf(KBArrayLen); // dynamic array length
 
   if PPointer(ADynamic)^ = nil then
     Exit;
@@ -558,6 +627,11 @@ begin
 
   if (kdoLimitToWordSize in AOptions) and (lLen > MAXWORD) then
     raise EKBDynamicWordLimit.Create(lLen);
+
+  {$IFDEF CPUX64}
+  if (kdoCPUArchCompatibility in AOptions) and (lLen > MaxInt) then
+    raise EKBDynamicLimit.Create(lLen, MaxInt);
+  {$ENDIF}
 
   lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
@@ -725,7 +799,7 @@ begin
     while ALength > 0 do
     begin
       Inc(Result, DynamicGetSize_DynArray(ADynamic, ATypeInfo, AOptions));
-      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer));
       Dec(ALength);
     end;
   else
@@ -813,7 +887,16 @@ begin
 
     AStream.WriteBuffer(lLen, SizeOf(Word));
   end else
-    AStream.WriteBuffer(lLen, SizeOf(KBArrayLen)); // TODO: x64 vs x86
+    if kdoCPUArchCompatibility in AOptions then
+    begin
+      {$IFDEF CPUX64}
+      if lLen > MaxInt then
+        raise EKBDynamicLimit.Create(lLen, MaxInt);
+      {$ENDIF}
+
+      AStream.WriteBuffer(lLen, SizeOf(KBArrayLen86));
+    end else
+      AStream.WriteBuffer(lLen, SizeOf(KBArrayLen));
 
   if lLen = 0 then
     Exit;
@@ -1059,7 +1142,7 @@ begin
     while ALength > 0 do
     begin
       DynamicWrite_DynArray(AStream, ADynamic, ATypeInfo, AOptions);
-      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64 vs x86
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer));
       Dec(ALength);
     end;
   else
@@ -1139,7 +1222,12 @@ begin
     lLen := 0;
     AStream.ReadBuffer(lLen, SizeOf(Word));
   end else
-    AStream.ReadBuffer(lLen, SizeOf(KBArrayLen));
+    if kdoCPUArchCompatibility in AOptions then
+    begin
+      lLen := 0;
+      AStream.ReadBuffer(lLen, SizeOf(KBArrayLen86));
+    end else
+      AStream.ReadBuffer(lLen, SizeOf(KBArrayLen));
 
   DynArraySetLength(PPointer(ADynamic)^, ATypeInfo, 1, @lLen);
 
@@ -1335,7 +1423,7 @@ begin
     while ALength > 0 do
     begin
       DynamicRead_DynArray(AStream, ADynamic, ATypeInfo, AOptions);
-      Inc(KBPointerMath(ADynamic), SizeOf(Pointer)); // TODO: x64 vs x86
+      Inc(KBPointerMath(ADynamic), SizeOf(Pointer));
       Dec(ALength);
     end;
   else
@@ -1369,6 +1457,7 @@ var
   lHeader: TKBDynamicHeader;
   lNewSize: Int64;
   lOldPos: Int64;
+  lOptions: Byte;
 begin
   if APreAllocSize then
   begin
@@ -1381,22 +1470,35 @@ begin
     end;
   end;
 
-  lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION;
-  lHeader.Stream.Options := 0;
-  lHeader.TypeVersion := AVersion;
+  lOptions := 0;
 
 {$IFDEF KBDYNAMIC_UNICODE}
-  lHeader.Stream.Options := lHeader.Stream.Options or cKBDYNAMIC_STREAM_CFG_UNICODE;
+  lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_UNICODE;
 {$ENDIF}
 
   if kdoUTF16ToUTF8 in AOptions then
-    lHeader.Stream.Options := lHeader.Stream.Options or cKBDYNAMIC_STREAM_CFG_UTF8;
+    lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_UTF8;
 
   if kdoLimitToWordSize in AOptions then
-    lHeader.Stream.Options := lHeader.Stream.Options or cKBDYNAMIC_STREAM_CFG_WORDSIZE;
+    lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_WORDSIZE;
 
   if kdoAnsiStringCodePage in AOptions then
-    lHeader.Stream.Options := lHeader.Stream.Options or cKBDYNAMIC_STREAM_CFG_CODEPAGE;
+    lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_CODEPAGE;
+
+  if kdoCPUArchCompatibility in AOptions then
+    lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_CPUARCH;
+
+  {$IFDEF CPUX64}
+  if kdoCPUArchCompatibility in AOptions then
+    lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION_v1
+  else
+    lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION_v2;
+  {$ELSE}
+  lHeader.Stream.Version := cKBDYNAMIC_STREAM_VERSION_v1;
+  {$ENDIF}
+
+  lHeader.Stream.Options := lOptions;
+  lHeader.TypeVersion := AVersion;
 
   AStream.WriteBuffer(lHeader, SizeOf(lHeader));
 
@@ -1410,30 +1512,46 @@ begin
 end;
 
 class function TKBDynamic.ReadFrom(AStream: TStream; const ADynamicType;
-  ATypeInfo: PTypeInfo; AVersion: Word): Boolean;
+  ATypeInfo: PTypeInfo; AVersion: Word; AForceCPUArchCompatibilityOnStreamV1: Boolean): Boolean;
 var
   lHeader: TKBDynamicHeader;
   lOptions: TKBDynamicOptions;
 begin
+  lOptions := [];
+
   AStream.ReadBuffer(lHeader, SizeOf(lHeader));
-  Result := (lHeader.TypeVersion = AVersion) and (lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION);
-  if not Result then
+  Result := lHeader.TypeVersion = AVersion;
+
+  if Result then
   begin
-    AStream.Seek(-SizeOf(lHeader), soCurrent);
-    Exit;
+    if cKBDYNAMIC_STREAM_CFG_UTF8 and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_UTF8 then
+      Include(lOptions, kdoUTF16ToUTF8);
+
+    if cKBDYNAMIC_STREAM_CFG_WORDSIZE and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_WORDSIZE then
+      Include(lOptions, kdoLimitToWordSize);
+
+    if cKBDYNAMIC_STREAM_CFG_CODEPAGE and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_CODEPAGE then
+      Include(lOptions, kdoAnsiStringCodePage);
+
+    if (cKBDYNAMIC_STREAM_CFG_CPUARCH and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_CPUARCH) or
+      (AForceCPUArchCompatibilityOnStreamV1 and (lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION_v1))
+    then
+      Include(lOptions, kdoCPUArchCompatibility);
+
+    {$IFDEF CPUX64}
+    if kdoCPUArchCompatibility in lOptions then
+      Result := lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION_v1
+    else
+      Result := lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION_v2;
+    {$ELSE}
+    Result := lHeader.Stream.Version = cKBDYNAMIC_STREAM_VERSION_v1;
+    {$ENDIF}
   end;
 
-  lOptions := [];
-  if cKBDYNAMIC_STREAM_CFG_UTF8 and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_UTF8 then
-    Include(lOptions, kdoUTF16ToUTF8);
-
-  if cKBDYNAMIC_STREAM_CFG_WORDSIZE and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_WORDSIZE then
-    Include(lOptions, kdoLimitToWordSize);
-
-  if cKBDYNAMIC_STREAM_CFG_CODEPAGE and lHeader.Stream.Options = cKBDYNAMIC_STREAM_CFG_CODEPAGE then
-    Include(lOptions, kdoAnsiStringCodePage);
-
-  ReadFromNH(AStream, ADynamicType, ATypeInfo, lOptions)
+  if Result then
+    ReadFromNH(AStream, ADynamicType, ATypeInfo, lOptions)
+  else
+    AStream.Seek(-SizeOf(lHeader), soCurrent);
 end;
 
 class procedure TKBDynamic.ReadFromNH(AStream: TStream;
@@ -1454,11 +1572,18 @@ begin
   ]);
 end;
 
+{ EKBDynamicLimit }
+
+constructor EKBDynamicLimit.Create(ALen, AMaxLen: KBArrayLen);
+begin
+  inherited CreateFmt('Invalid dynamic array size %d (max %d)', [ALen, AMaxLen]);
+end;
+
 { EKBDynamicWordLimit }
 
 constructor EKBDynamicWordLimit.Create(ALen: KBArrayLen);
 begin
-  inherited CreateFmt('Invalid dynamic array size %d (max 65535)', [ALen]);
+  inherited Create(ALen, MAXWORD);
 end;
 
 end.
