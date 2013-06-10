@@ -800,6 +800,13 @@ end;
 // --- Write
 // -----------------------------------------------------------------------------
 
+procedure TStream_WriteBuffer(AStream: TStream; var ABuffer; ACount: Integer);
+begin
+  // Workaround: Delphi XE3/XE4 have some performance issue in TStream.ReadBuffer/WriteBuffer
+  if (ACount <> 0) and (AStream.Write(ABuffer, ACount) <> ACount) then
+    raise EWriteError.CreateRes(@SWriteError);
+end;
+
 procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
@@ -813,7 +820,7 @@ var
 begin
   if AFieldTable^.Count = 0 then
   begin
-    AStream.WriteBuffer(PByte(ADynamic)^, AFieldTable.Size);
+    TStream_WriteBuffer(AStream, PByte(ADynamic)^, AFieldTable.Size);
     Exit;
   end;
 
@@ -826,7 +833,7 @@ begin
 
     if lCompare < lOffset then
     begin
-      AStream.WriteBuffer(PByte((KBPointerMath(ADynamic) + lCompare))^, lOffset - lCompare);
+      TStream_WriteBuffer(AStream, PByte((KBPointerMath(ADynamic) + lCompare))^, lOffset - lCompare);
 
       Inc(lCompare, lOffset - lCompare);
     end;
@@ -852,7 +859,7 @@ begin
   end;
 
   if lCompare < AFieldTable^.Size then
-    AStream.WriteBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
+    TStream_WriteBuffer(AStream, PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicWrite_DynArray(AStream: TStream; ADynamic: Pointer;
@@ -871,7 +878,7 @@ begin
     if lLen > MAXWORD then
       raise EKBDynamicWordLimit.Create(lLen);
 
-    AStream.WriteBuffer(lLen, SizeOf(Word));
+    TStream_WriteBuffer(AStream, lLen, SizeOf(Word));
   end else
     if kdoCPUArchCompatibility in AOptions then
     begin
@@ -880,9 +887,9 @@ begin
         raise EKBDynamicLimit.Create(lLen, MaxInt);
       {$ENDIF}
 
-      AStream.WriteBuffer(lLen, SizeOf(KBArrayLen86));
+      TStream_WriteBuffer(AStream, lLen, SizeOf(KBArrayLen86));
     end else
-      AStream.WriteBuffer(lLen, SizeOf(KBArrayLen));
+      TStream_WriteBuffer(AStream, lLen, SizeOf(KBArrayLen));
 
   if lLen = 0 then
     Exit;
@@ -890,7 +897,7 @@ begin
   lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
-    AStream.WriteBuffer(PByte(ADynamic^)^, lLen * lDyn^.elSize)
+    TStream_WriteBuffer(AStream, PByte(ADynamic^)^, lLen * lDyn^.elSize)
   else
     DynamicWrite_Array(
       AStream,
@@ -911,9 +918,9 @@ begin
   if ALen = 0 then
   begin
     if kdoLimitToWordSize in AOptions then
-      AStream.WriteBuffer(ALen, SizeOf(Word))
+      TStream_WriteBuffer(AStream, ALen, SizeOf(Word))
     else
-      AStream.WriteBuffer(ALen, SizeOf(KBStrLen));
+      TStream_WriteBuffer(AStream, ALen, SizeOf(KBStrLen));
 
     Exit;
   end;
@@ -1018,13 +1025,13 @@ begin
         if lStrLen > MAXWORD then
           raise EKBDynamicWordLimit.Create(lStrLen);
 
-        AStream.WriteBuffer(lStrLen, SizeOf(Word));
+        TStream_WriteBuffer(AStream, lStrLen, SizeOf(Word));
       end else
-        AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
+        TStream_WriteBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
       if lStrLen > 0 then
       begin
-        AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
+        TStream_WriteBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
 
         if kdoAnsiStringCodePage in AOptions then
         begin
@@ -1033,7 +1040,7 @@ begin
 {$ELSE}
           lCP := GetACP; // TODO: System.DefaultSystemCodePage
 {$ENDIF}
-          AStream.WriteBuffer(lCP, SizeOf(Word));
+          TStream_WriteBuffer(AStream, lCP, SizeOf(Word));
         end;
       end;
 
@@ -1058,12 +1065,12 @@ begin
           if lStrLen > MAXWORD then
             raise EKBDynamicWordLimit.Create(lStrLen);
 
-          AStream.WriteBuffer(lStrLen, SizeOf(Word));
+          TStream_WriteBuffer(AStream, lStrLen, SizeOf(Word));
         end else
-          AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
+          TStream_WriteBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
         if lStrLen > 0 then
-          AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
+          TStream_WriteBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
       end;
 
       Inc(PPointer(ADynamic));
@@ -1088,12 +1095,12 @@ begin
           if lStrLen > MAXWORD then
             raise EKBDynamicWordLimit.Create(lStrLen);
 
-          AStream.WriteBuffer(lStrLen, SizeOf(Word));
+          TStream_WriteBuffer(AStream, lStrLen, SizeOf(Word));
         end else
-          AStream.WriteBuffer(lStrLen, SizeOf(KBStrLen));
+          TStream_WriteBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
         if lStrLen > 0 then
-          AStream.WriteBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
+          TStream_WriteBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
       end;
 
       Inc(PPointer(ADynamic));
@@ -1140,6 +1147,13 @@ end;
 // --- Read
 // -----------------------------------------------------------------------------
 
+procedure TStream_ReadBuffer(AStream: TStream; var ABuffer; ACount: Integer);
+begin
+  // Workaround: Delphi XE3/XE4 have some performance issue in TStream.ReadBuffer/WriteBuffer
+  if (ACount <> 0) and (AStream.Read(ABuffer, ACount) <> ACount) then
+    raise EReadError.CreateRes(@SReadError);
+end;
+
 procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
   ATypeInfo: PTypeInfo; ALength: KBArrayLen; const AOptions: TKBDynamicOptions); forward;
 
@@ -1153,7 +1167,7 @@ var
 begin
   if AFieldTable^.Count = 0 then
   begin
-    AStream.ReadBuffer(PByte(ADynamic)^, AFieldTable.Size);
+    TStream_ReadBuffer(AStream, PByte(ADynamic)^, AFieldTable.Size);
     Exit;
   end;
 
@@ -1166,7 +1180,7 @@ begin
 
     if lCompare < lOffset then
     begin
-      AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, lOffset - lCompare);
+      TStream_ReadBuffer(AStream, PByte(KBPointerMath(ADynamic) + lCompare)^, lOffset - lCompare);
       Inc(lCompare, lOffset - lCompare);
     end;
 
@@ -1191,7 +1205,7 @@ begin
   end;
 
   if lCompare < AFieldTable^.Size then
-    AStream.ReadBuffer(PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
+    TStream_ReadBuffer(AStream, PByte(KBPointerMath(ADynamic) + lCompare)^, AFieldTable^.Size - lCompare);
 end;
 
 procedure DynamicRead_DynArray(AStream: TStream; ADynamic: Pointer;
@@ -1203,14 +1217,14 @@ begin
   if kdoLimitToWordSize in AOptions then
   begin
     lLen := 0;
-    AStream.ReadBuffer(lLen, SizeOf(Word));
+    TStream_ReadBuffer(AStream, lLen, SizeOf(Word));
   end else
     if kdoCPUArchCompatibility in AOptions then
     begin
       lLen := 0;
-      AStream.ReadBuffer(lLen, SizeOf(KBArrayLen86));
+      TStream_ReadBuffer(AStream, lLen, SizeOf(KBArrayLen86));
     end else
-      AStream.ReadBuffer(lLen, SizeOf(KBArrayLen));
+      TStream_ReadBuffer(AStream, lLen, SizeOf(KBArrayLen));
 
   DynArraySetLength(PPointer(ADynamic)^, ATypeInfo, 1, @lLen);
 
@@ -1220,7 +1234,7 @@ begin
   lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
 
   if lDyn^.elType = nil then
-    AStream.ReadBuffer(PByte(ADynamic^)^, lLen * lDyn^.elSize)
+    TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lLen * lDyn^.elSize)
   else
     DynamicRead_Array(
       AStream,
@@ -1249,18 +1263,18 @@ begin
       if kdoLimitToWordSize in AOptions then
       begin
         lStrLen := 0;
-        AStream.ReadBuffer(lStrLen, SizeOf(Word));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
       SetLength(PAnsiString(ADynamic)^, lStrLen);
 
       if lStrLen > 0 then
       begin
-        AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
+        TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
         if kdoAnsiStringCodePage in AOptions then
 {$IFDEF KBDYNAMIC_UNICODE}
-          AStream.ReadBuffer(PWord(PKBPointerMath(ADynamic)^ - 12)^, SizeOf(Word));   // StrRec.codePage
+          TStream_ReadBuffer(AStream, PWord(PKBPointerMath(ADynamic)^ - 12)^, SizeOf(Word));   // StrRec.codePage
 {$ELSE}
           AStream.Seek(SizeOf(Word), soFromCurrent); // TODO: try to convert from one codepage to another
 {$ENDIF}
@@ -1276,9 +1290,9 @@ begin
       if kdoLimitToWordSize in AOptions then
       begin
         lStrLen := 0;
-        AStream.ReadBuffer(lStrLen, SizeOf(Word));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
       if lStrLen = 0 then
         SetLength(PWideString(ADynamic)^, 0)
@@ -1314,7 +1328,7 @@ begin
         begin
           SetLength(PWideString(ADynamic)^, lStrLen);
 
-          AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
+          TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
         end;
 
       Inc(PPointer(ADynamic));
@@ -1328,9 +1342,9 @@ begin
       if kdoLimitToWordSize in AOptions then
       begin
         lStrLen := 0;
-        AStream.ReadBuffer(lStrLen, SizeOf(Word));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(Word));
       end else
-        AStream.ReadBuffer(lStrLen, SizeOf(KBStrLen));
+        TStream_ReadBuffer(AStream, lStrLen, SizeOf(KBStrLen));
 
       if lStrLen = 0 then
         SetLength(PUnicodeString(ADynamic)^, 0)
@@ -1366,7 +1380,7 @@ begin
         begin
           SetLength(PUnicodeString(ADynamic)^, lStrLen);
 
-          AStream.ReadBuffer(PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
+          TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(WideChar));
         end;
 
       Inc(PPointer(ADynamic));
@@ -1483,7 +1497,7 @@ begin
   lHeader.Stream.Options := lOptions;
   lHeader.TypeVersion := AVersion;
 
-  AStream.WriteBuffer(lHeader, SizeOf(lHeader));
+  TStream_WriteBuffer(AStream, lHeader, SizeOf(lHeader));
 
   WriteToNH(AStream, ADynamicType, ATypeInfo, AOptions);
 end;
@@ -1502,7 +1516,7 @@ var
 begin
   lOptions := [];
 
-  AStream.ReadBuffer(lHeader, SizeOf(lHeader));
+  TStream_ReadBuffer(AStream, lHeader, SizeOf(lHeader));
   Result := lHeader.TypeVersion = AVersion;
 
   if Result then
