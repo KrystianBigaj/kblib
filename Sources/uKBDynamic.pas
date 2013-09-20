@@ -6,7 +6,7 @@
  EMail:     krystian.bigaj@gmail.com
  WWW:       http://code.google.com/p/kblib/
 
- Tested on Delphi 2006/2009/XE/XE4(x64 and x86).
+ Tested on Delphi 2006/2009/XE/XE4/XE5(x64 and x86).
 
  See TestuKBDynamic.pas and Demos for some examples of usage.
 
@@ -48,28 +48,25 @@ unit uKBDynamic;
 interface
 
 uses
-  Windows, SysUtils, Classes, TypInfo, RTLConsts;
+  SysUtils, Classes, TypInfo, RTLConsts;
 
 type
 
 { Compiler compatibility }
 
-{$IF CompilerVersion >= 20.0}
-  {$DEFINE KBDYNAMIC_UNICODE}
-{$IFEND}
+  // XE4+ legacy warning silence
+  {$IF CompilerVersion >= 25}
+  {$LEGACYIFEND on}
+  {$IFEND}
 
-{$IFNDEF KBDYNAMIC_UNICODE}
-  UnicodeString = WideString;
-{$ENDIF}
-
-// D2009 and older. D2007/D2009 supports NativeInt/NativeUInt, however compiler is buggy for this types.
-// http://qc.embarcadero.com/wc/qcmain.aspx?d=71292
-{$IF CompilerVersion < 21}
+  // D2009 and older. D2007/D2009 supports NativeInt/NativeUInt, however compiler is buggy for this types.
+  // http://qc.embarcadero.com/wc/qcmain.aspx?d=71292
+  {$IF CompilerVersion < 21}
   NativeInt = Integer;
   NativeUInt = Cardinal;
   PNativeInt = ^NativeInt;
   PNativeUInt = ^NativeUInt;
-{$IFEND}
+  {$IFEND}
 
   KBSize = NativeInt;
 
@@ -84,6 +81,16 @@ type
 
   PKBArrayLen86 = ^KBArrayLen86;
   KBArrayLen86 = KBStrLen;
+
+  {$IF Declared(UnicodeString)}
+  KBUnicodeString = UnicodeString;
+  {$ELSE}
+  KBUnicodeString = WideString;
+  {$IFEND}
+
+  {$IF not Declared(PByte)}
+  PByte = ^Byte;
+  {$IFEND}
 
 { TKBDynamicOption }
 
@@ -135,17 +142,17 @@ const
   TKBDynamicDefaultOptions = [
     kdoAnsiStringCodePage
 
-{$IFDEF KBDYNAMIC_DEFAULT_UTF8}
+    {$IFDEF KBDYNAMIC_DEFAULT_UTF8}
     ,kdoUTF16ToUTF8
-{$ENDIF}
+    {$ENDIF}
 
-{$IFDEF KBDYNAMIC_DEFAULT_WORDSIZE}
+    {$IFDEF KBDYNAMIC_DEFAULT_WORDSIZE}
     ,kdoLimitToWordSize
-{$ENDIF}
+    {$ENDIF}
 
-{$IFDEF KBDYNAMIC_DEFAULT_CPUARCH}
+    {$IFDEF KBDYNAMIC_DEFAULT_CPUARCH}
     ,kdoCPUArchCompatibility
-{$ENDIF}
+    {$ENDIF}
   ];
 
   // Useful options set for transferring streams over internet (safe)
@@ -296,6 +303,9 @@ const
 
 implementation
 
+const
+  MAXWORD = 65535;
+
 // -----------------------------------------------------------------------------
 // --- Some RTTI info types (from System.pas)
 // -----------------------------------------------------------------------------
@@ -325,7 +335,7 @@ type
   PDynArrayTypeInfo = ^TDynArrayTypeInfo;
   TDynArrayTypeInfo = packed record
     kind: Byte;
-    name: string[0];
+    name: Byte;
     elSize: KBArrayLen86;
     elType: ^PDynArrayTypeInfo;
     varType: Integer;
@@ -381,7 +391,7 @@ begin
     begin
       case lTypeInfo^.Kind of
       tkArray, tkRecord:
-        Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+        Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + PByte(@lTypeInfo^.Name)^)^.Size);
       else
         Inc(lCompare, SizeOf(Pointer));
       end;
@@ -429,7 +439,7 @@ begin
   if (not Result) or (lLen = 0) then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + PByte(@ATypeInfo^.Name)^);
 
   if lDyn^.elType = nil then
     Result := CompareMem(PPointer(ADynamic1)^, PPointer(ADynamic2)^, lLen * lDyn^.elSize)
@@ -453,6 +463,7 @@ begin
     Exit;
 
   case ATypeInfo^.Kind of
+  {$IF Declared(AnsiString)}
   tkLString:
     while ALength > 0 do
     begin
@@ -464,7 +475,9 @@ begin
       Inc(PPointer(ADynamic2));
       Dec(ALength);
     end;
+  {$IFEND}
 
+  {$IF Declared(WideString)}
   tkWString:
     while ALength > 0 do
     begin
@@ -476,8 +489,9 @@ begin
       Inc(PPointer(ADynamic2));
       Dec(ALength);
     end;
+  {$IFEND}
 
-{$IFDEF KBDYNAMIC_UNICODE}
+  {$IF Declared(UnicodeString)}
   tkUString:
     while ALength > 0 do
     begin
@@ -489,11 +503,11 @@ begin
       Inc(PPointer(ADynamic2));
       Dec(ALength);
     end;
-{$ENDIF}
+  {$IFEND}
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         if not DynamicCompare_Array(ADynamic1, ADynamic2, lFieldTable.Fields[0].TypeInfo^, lFieldTable.Count) then
@@ -507,7 +521,7 @@ begin
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         if not DynamicCompare_Record(ADynamic1, ADynamic2, lFieldTable) then
@@ -583,7 +597,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + PByte(@lTypeInfo^.Name)^)^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -622,7 +636,7 @@ begin
     raise EKBDynamicLimit.Create(lLen, MaxInt);
   {$ENDIF}
 
-  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + PByte(@ATypeInfo^.Name)^);
 
   if lDyn^.elType = nil then
     Inc(Result, lLen * lDyn^.elSize)
@@ -647,6 +661,7 @@ begin
     Exit;
 
   case ATypeInfo^.Kind of
+  {$IF Declared(AnsiString)}
   tkLString:
     while ALength > 0 do
     begin
@@ -673,7 +688,9 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
+  {$IF Declared(WideString)}
   tkWString:
     while ALength > 0 do
     begin
@@ -690,14 +707,10 @@ begin
         begin
           if kdoUTF16ToUTF8 in AOptions then
           begin
-            lStrLen := WideCharToMultiByte(
-              CP_UTF8, 0,
-              PWideChar(ADynamic^), lStrLen,
-              nil, 0,
-              nil, nil);
+            lStrLen := UnicodeToUtf8(nil, MaxInt, PWideChar(ADynamic^), lStrLen);
 
             if lStrLen = 0 then
-              RaiseLastOSError;
+              raise EKBDynamic.Create('UnicodeToUtf8 failed!');
           end;
 
           if (kdoLimitToWordSize in AOptions) and (lStrLen > MAXWORD) then
@@ -713,8 +726,9 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
-{$IFDEF KBDYNAMIC_UNICODE}
+  {$IF Declared(UnicodeString)}
   tkUString:
     while ALength > 0 do
     begin
@@ -731,14 +745,10 @@ begin
         begin
           if kdoUTF16ToUTF8 in AOptions then
           begin
-            lStrLen := WideCharToMultiByte(
-              CP_UTF8, 0,
-              PWideChar(ADynamic^), lStrLen,
-              nil, 0,
-              nil, nil);
+            lStrLen := UnicodeToUtf8(nil, MaxInt, PWideChar(ADynamic^), lStrLen);
 
             if lStrLen = 0 then
-              RaiseLastOSError;
+              raise EKBDynamic.Create('UnicodeToUtf8 failed!');
           end;
 
           if (kdoLimitToWordSize in AOptions) and (lStrLen > MAXWORD) then
@@ -754,11 +764,11 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
-{$ENDIF}
+  {$IFEND}
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         Inc(Result, DynamicGetSize_Array(
@@ -775,7 +785,7 @@ begin
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         Inc(Result, DynamicGetSize_Record(ADynamic, lFieldTable, AOptions));
@@ -850,7 +860,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + PByte(@lTypeInfo^.Name)^)^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -894,7 +904,7 @@ begin
   if lLen = 0 then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + PByte(@ATypeInfo^.Name)^);
 
   if lDyn^.elType = nil then
     TStream_WriteBuffer(AStream, PByte(ADynamic^)^, lLen * lDyn^.elSize)
@@ -911,9 +921,8 @@ end;
 procedure DynamicWrite_UTF16AsUFT8(AStream: TStream; APWideChar: PPWideChar;
   ALen: KBStrLen; const AOptions: TKBDynamicOptions);
 var
-  lUTF8: PAnsiChar;
+  lUTF8: Pointer;
   lStrLen: KBStrLen;
-  lErr: DWORD;
 begin
   if ALen = 0 then
   begin
@@ -925,51 +934,15 @@ begin
     Exit;
   end;
 
-  // Allocate buffer to cover whole Unicode BMP in UTF-8
-  GetMem(lUTF8, ALen * 3);
-  lStrLen := WideCharToMultiByte(
-    CP_UTF8, 0,
-    APWideChar^, ALen,
-    lUTF8, ALen * 3,
-    nil, nil);
-
-  // Very rare case (if ALen*3 is too small) - for strings filled with chars of Unicode Supplementary Plane
+  lStrLen := UnicodeToUtf8(nil, MaxInt, APWideChar^, ALen);
   if lStrLen = 0 then
+    raise EKBDynamic.Create('UnicodeToUtf8 failed!');
+
+  GetMem(lUTF8, lStrLen + 1);
+  if UnicodeToUtf8(lUTF8, lStrLen + 1, APWideChar^, ALen) <> Integer(lStrLen + 1) then
   begin
-    lErr := GetLastError; // FreeMem can call eg. VirtualFree, so GLE must be saved before FreeMem call
-
-    FreeMem(lUTF8); // FreeMem here instead of ReallocMem below to prevent
-                    // memory leak, in case of possible EOutOfMemory in ReallocMem
-
-    if lErr <> ERROR_INSUFFICIENT_BUFFER then
-      RaiseLastOSError(lErr);
-
-    // Get required buf size and allocate it
-    lStrLen := WideCharToMultiByte(
-      CP_UTF8, 0,
-      APWideChar^, ALen,
-      nil, 0,
-      nil, nil);
-
-    if lStrLen = 0 then
-      RaiseLastOSError;
-
-    GetMem(lUTF8, lStrLen);
-
-    // Convert to UTF8
-    lStrLen := WideCharToMultiByte(
-      CP_UTF8, 0,
-      APWideChar^, ALen,
-      lUTF8, lStrLen,
-      nil, nil);
-
-    if lStrLen = 0 then
-    begin
-      lErr := GetLastError;
-      FreeMem(lUTF8);
-
-      RaiseLastOSError(lErr);
-    end;
+    FreeMem(lUTF8);
+    raise EKBDynamic.Create('UnicodeToUtf8 failed!');
   end;
 
   if kdoLimitToWordSize in AOptions then
@@ -1006,12 +979,15 @@ procedure DynamicWrite_Array(AStream: TStream; ADynamic: Pointer;
 var
   lFieldTable: PFieldTable;
   lStrLen: KBStrLen;
+  {$IF Declared(AnsiString)}
   lCP: Word;
+  {$IFEND}
 begin
   if ALength = 0 then
     Exit;
 
   case ATypeInfo^.Kind of
+  {$IF Declared(AnsiString)}
   tkLString:
     while ALength > 0 do
     begin
@@ -1035,11 +1011,12 @@ begin
 
         if kdoAnsiStringCodePage in AOptions then
         begin
-{$IFDEF KBDYNAMIC_UNICODE}
+          {$IF Declared(UnicodeString)}
           lCP := PWord(PKBPointerMath(ADynamic)^ - 12)^; // StrRec.codePage
-{$ELSE}
+          {$ELSE}
           lCP := GetACP; // TODO: System.DefaultSystemCodePage
-{$ENDIF}
+          {$IFEND}
+
           TStream_WriteBuffer(AStream, lCP, SizeOf(Word));
         end;
       end;
@@ -1047,7 +1024,9 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
+  {$IF Declared(WideString)}
   tkWString:
     while ALength > 0 do
     begin
@@ -1076,8 +1055,9 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
-{$IFDEF KBDYNAMIC_UNICODE}
+  {$IF Declared(UnicodeString)}
   tkUString:
     while ALength > 0 do
     begin
@@ -1106,11 +1086,11 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
-{$ENDIF}
+  {$IFEND}
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         DynamicWrite_Array(AStream, ADynamic, lFieldTable.Fields[0].TypeInfo^,
@@ -1122,7 +1102,7 @@ begin
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         DynamicWrite_Record(AStream, ADynamic, lFieldTable, AOptions);
@@ -1196,7 +1176,7 @@ begin
 
     case lTypeInfo^.Kind of
     tkArray, tkRecord:
-      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + Byte(lTypeInfo^.Name[0]))^.Size);
+      Inc(lCompare, PFieldTable(KBPointerMath(lTypeInfo) + PByte(@lTypeInfo^.Name)^)^.Size);
     else
       Inc(lCompare, SizeOf(Pointer));
     end;
@@ -1231,7 +1211,7 @@ begin
   if lLen = 0 then
     Exit;
 
-  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + Byte(ATypeInfo^.Name[0]));
+  lDyn := PDynArrayTypeInfo(KBPointerMath(ATypeInfo) + PByte(@ATypeInfo^.Name)^);
 
   if lDyn^.elType = nil then
     TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lLen * lDyn^.elSize)
@@ -1250,13 +1230,13 @@ procedure DynamicRead_Array(AStream: TStream; ADynamic: Pointer;
 var
   lFieldTable: PFieldTable;
   lStrLen: KBStrLen;
-  lUTF8: PAnsiChar;
-  lErr: DWORD;
+  lUTF8: Pointer;
 begin
   if ALength = 0 then
     Exit;
 
   case ATypeInfo^.Kind of
+  {$IF Declared(AnsiString)}
   tkLString:
     while ALength > 0 do
     begin
@@ -1273,17 +1253,19 @@ begin
       begin
         TStream_ReadBuffer(AStream, PByte(ADynamic^)^, lStrLen * SizeOf(AnsiChar));
         if kdoAnsiStringCodePage in AOptions then
-{$IFDEF KBDYNAMIC_UNICODE}
+          {$IF Declared(UnicodeString)}
           TStream_ReadBuffer(AStream, PWord(PKBPointerMath(ADynamic)^ - 12)^, SizeOf(Word));   // StrRec.codePage
-{$ELSE}
+          {$ELSE}
           AStream.Seek(SizeOf(Word), soFromCurrent); // TODO: try to convert from one codepage to another
-{$ENDIF}
+          {$IFEND}
       end;
 
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
+  {$IF Declared(WideString)}
   tkWString:
     while ALength > 0 do
     begin
@@ -1299,8 +1281,6 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
-          // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
-          SetLength(PWideString(ADynamic)^, lStrLen);
           GetMem(lUTF8, lStrLen);
           if AStream.Read(lUTF8^, lStrLen) <> lStrLen then
           begin
@@ -1308,22 +1288,15 @@ begin
             raise EReadError.CreateRes(@SReadError);
           end;
 
-          lStrLen := MultiByteToWideChar(
-            CP_UTF8, 0,
-            lUTF8, lStrLen,
-            PPWideChar(ADynamic)^, lStrLen);
-
-          if lStrLen = 0 then
+          SetLength(PWideString(ADynamic)^, Utf8ToUnicode(nil, MaxInt, lUTF8, lStrLen));
+          if Length(PWideString(ADynamic)^) = 0 then
           begin
-            lErr := GetLastError;
-
             FreeMem(lUTF8);
+            raise EKBDynamic.Create('Utf8ToUnicode failed!');
+          end;
 
-            RaiseLastOSError(lErr);
-          end else
-            FreeMem(lUTF8);
-
-          SetLength(PWideString(ADynamic)^, lStrLen);
+          Utf8ToUnicode(@PWideString(ADynamic)^[1], Length(PWideString(ADynamic)^) + 1, lUTF8, lStrLen);
+          FreeMem(lUTF8);
         end else
         begin
           SetLength(PWideString(ADynamic)^, lStrLen);
@@ -1334,8 +1307,9 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
+  {$IFEND}
 
-{$IFDEF KBDYNAMIC_UNICODE}
+  {$IF Declared(UnicodeString)}
   tkUString:
     while ALength > 0 do
     begin
@@ -1351,8 +1325,6 @@ begin
       else
         if kdoUTF16ToUTF8 in AOptions then
         begin
-          // Assumption: number_of_UTF8_bytes(str) >= number_of_UTF16_chars(str)
-          SetLength(PUnicodeString(ADynamic)^, lStrLen);
           GetMem(lUTF8, lStrLen);
           if AStream.Read(lUTF8^, lStrLen) <> lStrLen then
           begin
@@ -1360,22 +1332,15 @@ begin
             raise EReadError.CreateRes(@SReadError);
           end;
 
-          lStrLen := MultiByteToWideChar(
-            CP_UTF8, 0,
-            lUTF8, lStrLen,
-            PPWideChar(ADynamic)^, lStrLen);
-
-          if lStrLen = 0 then
+          SetLength(PUnicodeString(ADynamic)^, Utf8ToUnicode(nil, MaxInt, lUTF8, lStrLen));
+          if Length(PUnicodeString(ADynamic)^) = 0 then
           begin
-            lErr := GetLastError;
-
             FreeMem(lUTF8);
+            raise EKBDynamic.Create('Utf8ToUnicode failed!');
+          end;
 
-            RaiseLastOSError(lErr);
-          end else
-            FreeMem(lUTF8);
-
-          SetLength(PUnicodeString(ADynamic)^, lStrLen);
+          Utf8ToUnicode(@PUnicodeString(ADynamic)^[1], Length(PUnicodeString(ADynamic)^) + 1, lUTF8, lStrLen);
+          FreeMem(lUTF8);
         end else
         begin
           SetLength(PUnicodeString(ADynamic)^, lStrLen);
@@ -1386,11 +1351,11 @@ begin
       Inc(PPointer(ADynamic));
       Dec(ALength);
     end;
-{$ENDIF}
+  {$IFEND}
 
   tkArray:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         DynamicRead_Array(
@@ -1407,7 +1372,7 @@ begin
 
   tkRecord:
     begin
-      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + Byte(PTypeInfo(ATypeInfo).Name[0]));
+      lFieldTable := PFieldTable(KBPointerMath(ATypeInfo) + PByte(@PTypeInfo(ATypeInfo).Name)^);
       while ALength > 0 do
       begin
         DynamicRead_Record(AStream, ADynamic, lFieldTable, AOptions);
@@ -1469,9 +1434,9 @@ begin
 
   lOptions := 0;
 
-{$IFDEF KBDYNAMIC_UNICODE}
+  {$IF Declared(UnicodeString)}
   lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_UNICODE;
-{$ENDIF}
+  {$IFEND}
 
   if kdoUTF16ToUTF8 in AOptions then
     lOptions := lOptions or cKBDYNAMIC_STREAM_CFG_UTF8;
