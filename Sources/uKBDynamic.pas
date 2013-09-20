@@ -939,7 +939,7 @@ begin
     raise EKBDynamic.Create('UnicodeToUtf8 failed!');
 
   GetMem(lUTF8, lStrLen + 1);
-  if UnicodeToUtf8(lUTF8, lStrLen + 1, APWideChar^, ALen) <> Integer(lStrLen + 1) then
+  if UnicodeToUtf8(lUTF8, lStrLen + 1, APWideChar^, ALen) <> Cardinal(lStrLen + 1) then
   begin
     FreeMem(lUTF8);
     raise EKBDynamic.Create('UnicodeToUtf8 failed!');
