@@ -88,10 +88,6 @@ type
   KBUnicodeString = WideString;
   {$IFEND}
 
-  {$IF not Declared(PByte)}
-  PByte = ^Byte;
-  {$IFEND}
-
 { TKBDynamicOption }
 
   TKBDynamicOption = (
@@ -281,8 +277,8 @@ type
 
 const
   // Version (1 Byte)
-  cKBDYNAMIC_STREAM_VERSION_v1              = $01;
-  cKBDYNAMIC_STREAM_VERSION_v2              = $02;
+  cKBDYNAMIC_STREAM_VERSION_v1              = $01; // Arch: Little Endian, 32 bit, used also on x64 with kdoCPUArchCompatibility
+  cKBDYNAMIC_STREAM_VERSION_v2              = $02; // Arch: Little Endian, 64 bit
 
   // CFG (1 Byte)
   cKBDYNAMIC_STREAM_CFG_UNICODE             = $01;  // Stream created in UNICODE version of delphi (D2009+),
