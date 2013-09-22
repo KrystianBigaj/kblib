@@ -303,8 +303,13 @@ const
 
 implementation
 
+{$IF Declared(UnicodeString)}
 const
   MAXWORD = 65535;
+{$ELSE}
+uses
+  Windows;
+{$IFEND}
 
 // -----------------------------------------------------------------------------
 // --- Some RTTI info types (from System.pas)
