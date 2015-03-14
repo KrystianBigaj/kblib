@@ -38,4 +38,4 @@ See TestuKBDynamic.pas and Demos for some examples of usage.
 
 License:   MPL 1.1/GPL 2.0/LGPL 3.0
 EMail:     krystian.bigaj@gmail.com
-WWW:       http://code.google.com/p/kblib/
+WWW:       http://github.com/Krystian-Bigaj/kblib/
